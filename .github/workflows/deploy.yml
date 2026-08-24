@@ -1,0 +1,166 @@
+# =============================================================================
+# DEPLOY TO GITHUB PAGES
+# =============================================================================
+# This workflow automatically builds and deploys the project to GitHub Pages
+# whenever code is pushed to the main branch. It can also be triggered manually
+# from the GitHub Actions tab.
+#
+# The deployed site will be available at:
+#   https://<username>.github.io/<projectname>/
+# (assuming your repository is named "projectname")
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# WORKFLOW NAME
+# -----------------------------------------------------------------------------
+# This name appears in the GitHub Actions tab and in status checks.
+# Keep it descriptive so team members know what this workflow does at a glance.
+name: Deploy to GitHub Pages
+
+# -----------------------------------------------------------------------------
+# TRIGGER CONDITIONS (when this workflow runs)
+# -----------------------------------------------------------------------------
+on:
+  # Run automatically on every push to specific branches
+  push:
+    branches:
+      # Only trigger when code is pushed to the 'main' branch.
+      # Change this if your default branch has a different name (e.g., 'master').
+      - main
+
+  # Allow manual trigger from the Actions tab (useful for testing or re-deploying
+  # without pushing new code). Look for the "Run workflow" button in GitHub UI.
+  workflow_dispatch:
+
+# -----------------------------------------------------------------------------
+# PERMISSIONS
+# -----------------------------------------------------------------------------
+# GitHub Actions workflows run with restricted permissions by default.
+# This section elevates permissions so the workflow can write to the repository,
+# specifically to push the built site to the 'gh-pages' branch.
+permissions:
+  # 'write' permission on 'contents' allows the workflow to create commits
+  # and push them to branches (required for deploying to gh-pages).
+  contents: write
+
+# -----------------------------------------------------------------------------
+# JOBS (the actual work to be done)
+# -----------------------------------------------------------------------------
+# Jobs run in parallel by default. This workflow has a single 'deploy' job.
+jobs:
+  # ---------------------------------------------------------------------------
+  # DEPLOY JOB
+  # ---------------------------------------------------------------------------
+  # This job handles the entire build-and-deploy pipeline on a fresh Ubuntu VM.
+  deploy:
+    # The type of runner (virtual machine) to execute this job on.
+    # 'ubuntu-latest' is a standard Linux environment with common tools pre-installed.
+    runs-on: ubuntu-latest
+
+    # -------------------------------------------------------------------------
+    # STEPS (sequential commands executed on the runner)
+    # -------------------------------------------------------------------------
+    steps:
+      # =====================================================================
+      # STEP 1: CHECKOUT
+      # =====================================================================
+      # Downloads the repository code into the runner's working directory
+      # so subsequent steps can access and build the project files.
+      - name: Checkout
+        # Uses the official GitHub action for checking out repositories.
+        # @v4 pins to version 4 for stability and reproducibility.
+        uses: actions/checkout@v4
+
+      # =====================================================================
+      # STEP 2: SETUP NODE.JS
+      # =====================================================================
+      # Installs Node.js and npm, and configures caching for dependencies
+      # to speed up future workflow runs.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          # Specifies the Node.js version to use. Match this to your project's
+          # requirements (check package.json "engines" field if present).
+          node-version: 20
+
+          # Enables caching of the npm cache directory between workflow runs.
+          # This dramatically speeds up 'npm ci' by reusing downloaded packages.
+          cache: npm
+
+      # =====================================================================
+      # STEP 3: INSTALL DEPENDENCIES
+      # =====================================================================
+      # Installs all project dependencies listed in package-lock.json.
+      # 'npm ci' is preferred over 'npm install' in CI because it is faster,
+      # deterministic (uses exact versions from lock file), and fails on
+      # version mismatches rather than silently updating.
+      - name: Install dependencies
+        run: npm ci
+
+      # =====================================================================
+      # STEP 4: BUILD FOR GITHUB PAGES
+      # =====================================================================
+      # Compiles the project into static files optimized for GitHub Pages.
+      # Environment variables configure the build for the GitHub Pages context.
+      - name: Build for GitHub Pages
+        # Environment variables injected into the build process.
+        # These are available to Node.js scripts and bundlers (Vite, Webpack, etc.).
+        env:
+          # BASE_URL: The root path where the site is hosted on GitHub Pages.
+          # GitHub Pages serves project sites at /repository-name/.
+          # This must match your repository name for client-side routing and
+          # asset paths to resolve correctly.
+          BASE_URL: /
+
+          # GITHUB_PAGES: A custom flag indicating this is a GitHub Pages build.
+          # Your build scripts can check this to enable/disable features
+          # (e.g., disable auth, adjust API endpoints, strip dev-only code).
+          GITHUB_PAGES: true
+
+          # QRX_PUBLIC_NAMESPACES: A comma-separated list of namespaces that
+          # should be publicly accessible in the built site. This mirrors the
+          # .env variable QRX_PUBLIC_NAMESPACES used in local development.
+          # Only 'main' is exposed here; add more if needed (e.g., "main,demo").
+          QRX_PUBLIC_NAMESPACES: main
+
+        # The actual build command. 'build:github' is a custom npm script
+        # (defined in package.json) that should produce static output in ./dist.
+        # This script should handle BASE_URL injection and any GH Pages-specific
+        # configuration (e.g., setting Vite's base config or React Router's basename).
+        run: npm run build:github
+
+      # =====================================================================
+      # STEP 5: DEPLOY TO GH-PAGES BRANCH
+      # =====================================================================
+      # Pushes the built static files (from ./dist) to the 'gh-pages' branch,
+      # which GitHub Pages automatically serves. The 'gh-pages' branch is
+      # created/managed entirely by this action — it doesn't need to exist beforehand.
+      - name: Deploy to gh-pages branch
+        # Uses peaceiris/actions-gh-pages, a popular and well-maintained action
+        # specifically designed for deploying to GitHub Pages.
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          # The GitHub token automatically provided by Actions.
+          # This authenticates the push to the gh-pages branch.
+          # DO NOT use a personal access token here unless you need cross-repo deploys.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+          # The directory containing the built static site.
+          # This should match whatever your build script outputs to (e.g., 'dist', 'build').
+          publish_dir: ./dist
+
+          # If true, creates a new orphan branch with a single commit containing
+          # only the built files. This keeps the gh-pages branch history clean
+          # and small (no full git history of the source code).
+          # Recommended for static site deployments.
+          force_orphan: true
+
+          # -------------------------------------------------------------------
+          # OPTIONAL: CUSTOM DOMAIN (currently commented out)
+          # -------------------------------------------------------------------
+          # Uncomment the line below and set your domain to use a custom URL
+          # instead of the default .github.io address. You must also configure
+          # DNS records (CNAME or A records) pointing to GitHub Pages servers.
+          # See: https://docs.github.com/en/pages/configuring-a-custom-domain
+          # -------------------------------------------------------------------
+          cname: hypertext.wiki 

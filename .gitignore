@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+public/data/*
+!public/data/index.json
+data/*
+!data/main/
+!data/cache/
+!data/reddit/
+folder-structure.txt
+context.txt
