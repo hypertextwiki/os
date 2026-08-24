@@ -1,6 +1,6 @@
 <div align=center>
-  <div><img alt="Q for QRx" src="./public/favicon.png" width=96></div>
-  <h1>Generative QR Coding (QRx)</h1>
+  <div><img alt="Q for QRx" src="./public/hypertextwiki-title-logo.png"></div>
+  <h1>a hypertext based generative Operating System</h1>
   <p>Kernel 26.06.14</p>
   <div><img alt="QR Code for QRx Kernel 26.02.15" src="./public/index.qr.png" width=400></div>
 </div>
@@ -261,16 +261,3 @@ Instead, you can save your system prompt as a standard text file in your databas
 `?x=read('system').then(v => localStorage.setItem('s', v))`
 
 Because `?x` evaluates dynamically via `new Function` without an `async` wrapper, using the native Promise `.then()` chain successfully prevents top-level `await` syntax errors. This permanently sets your operating system's behavioral framework securely behind the scenes.
-
-
------------------------------
-
-# Using QRx in other environments
-
-- [Bash port](./docs/bash/cli.md) - using `./cli.sh `to use the QRx protocol in the command line with an interactive shell
-- [Deploying to Reddit (Devvit)](./docs/deploy/reddit.md) — how to create a Reddit app, install the CLI, and publish QRX as a Devvit post
-  - the full Devvit API is documented in [./docs/reddit/llms-full.txt](./docs/reddit/llms-full.txt)
-- [Devvit CSP Workarounds](./docs/deploy/devvit-csp-workarounds.md) — how a dynamic JS runtime survives inside Reddit's sandboxed webview
-
-
-<img width="4061" height="3057" alt="PXL_20260519_151947632~3" src="https://github.com/user-attachments/assets/a59d2f3c-3948-4483-aea2-ae56095af335" />
