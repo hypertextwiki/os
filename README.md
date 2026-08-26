@@ -300,3 +300,14 @@ Instead, you can save your system prompt as a standard text file in your databas
 `?x=read('system').then(v => localStorage.setItem('s', v))`
 
 Because `?x` evaluates dynamically via `new Function` without an `async` wrapper, using the native Promise `.then()` chain successfully prevents top-level `await` syntax errors. This permanently sets your operating system's behavioral framework securely behind the scenes.
+
+
+
+<br>
+<hr>
+<br>
+
+
+## Notes to agents
+- For indexed docs see: https://hypertext.wiki/llms.txt 
+- For the full docs: https://hypertext.wiki/llms-full.txt
