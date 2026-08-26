@@ -12,7 +12,9 @@ This qr encodes an html file turning any browser since the 1990s into an offline
   <img width="583" height="680" alt="559856767-e2e48f53-5b27-4b64-aa1e-b049219df9da" src="https://github.com/user-attachments/assets/6cd2995e-1bd7-4b62-a50e-f174b6015d78" />
 </div>
 
------------------------------
+<br>
+<hr>
+<br>
 
 ## Local Setup
 
@@ -32,9 +34,12 @@ npm run install
 npm start
 ```
 
------------------------------
+<br>
+<hr>
+<br>
 
-# Core flags
+
+## Core flags
 The above Kernel exposes the following URL `?query` params
 
 | Flag | Description |
@@ -54,10 +59,10 @@ The above Kernel exposes the following URL `?query` params
   <img width="1080" height="813" alt="towards-a-teleology-of-hypertext-welcome-to-r-v0-suslk89wrg8h1" src="https://github.com/user-attachments/assets/998d82c6-e366-4c06-89b8-ce43b449a5da" />
 </div>
 
-# Globals
+## Globals
 The kernel exposes the following variables and methods
 
-## Variables
+### Variables
 | Variable | Description |
 | :--- | :--- |
 | **`filename`** | **File Pointer**. The name of the current record being read from or written to. Defaults to `MAIN` or the value before `?` in the hash. |
@@ -68,7 +73,7 @@ The kernel exposes the following variables and methods
 | **`db`** | **Active DB Handle**. The raw `IDBDatabase` connection object for the current `DB`. |
 | **`FILES`** | **Table Name**. The hardcoded name of the object store (`'files'`) within the IndexedDB where all records are saved. |
 
-## Methods
+### Methods
 | Method | Description |
 | :--- | :--- |
 | **`read(k, [d])`** | **Async Read**. Returns the content of file `k`. Checks the current database first, then falls back to the `os` database if the file exists there |
@@ -83,11 +88,16 @@ The kernel exposes the following variables and methods
   <img width="1916" height="961" alt="Screenshot_2026-06-23_260702" src="https://github.com/user-attachments/assets/ea50565f-e334-48b9-8ced-54eed1029d04" />
 </div>
 
------------------------------
 
-# Developer Notes
+<br>
+<hr>
+<br>
 
-## Build Pipeline (`npm run build`)
+
+
+## Developer Notes
+
+### Build Pipeline (`npm run build`)
 
 The build produces a `dist/index.html` in three stages:
 
@@ -95,7 +105,7 @@ The build produces a `dist/index.html` in three stages:
 2. **QR Code** — A QR code is generated from the bare kernel and written to `public/index.qr.png`. This happens before any wrapping so the QR payload is as small as possible
 3. **Bootloader injection** — The kernel is wrapped in a full HTML document structure (`<!DOCTYPE html><html><head>…</head><body>…</body></html>`), PWA manifest and service worker registration are injected into `<head>`, and the bootloader script is appended into `<body>`
 
-### Static Deploys (GitHub Pages, etc.)
+#### Static Deploys (GitHub Pages, etc.)
 
 `npm run build:github` mirrors `server.js`'s namespace logic at build time instead of runtime — it reads `QRX_PUBLIC_NAMESPACES` and copies only the allowed namespaces from `data/` into `public/data/`, then generates a static `public/data/index.json`.
 
@@ -106,13 +116,13 @@ This means `QRX_PUBLIC_NAMESPACES` currently has to be set in **two places** and
 
 If you add a namespace and only update `.env`, your server will serve it but your static GitHub Pages deploy won't — it'll silently fall back to whatever was last baked in. There's no automated sync between the two yet, so for now, **remember to update `deploy.yml` whenever you change `QRX_PUBLIC_NAMESPACES` in `.env`**, especially if you want the static deploy to match your server's namespace visibility.
 
-#### Subdirectory Hosting (`BASE_URL`)
+##### Subdirectory Hosting (`BASE_URL`)
 
 GitHub Pages project sites are served from a subdirectory (e.g. `https://you.github.io/qrx/`), not root. `deploy.yml` already sets this via the `BASE_URL` env var on the `Build for GitHub Pages` step — it's used both for Vite's own asset paths and to set the kernel's `BASE` variable, so namespace resolution works the same under a subdirectory as it does at root. You shouldn't need to touch this unless your repo name (and therefore your Pages path) changes — if so, update `BASE_URL` in `deploy.yml` to match.
 
 `.env` is never read during the GitHub Actions build (it's not committed to the repo), so this kind of build-time config always belongs in `deploy.yml`'s `env:` block, not `.env` — same reasoning as the `QRX_PUBLIC_NAMESPACES` duplication above.
 
-#### Why GitHub Pages Needs a `404.html`
+##### Why GitHub Pages Needs a `404.html`
 
 GitHub Pages only serves real files. A URL like `/qrx/wiki` has no matching file on disk, so GitHub Pages returns its `404.html` for it instead of an error page — this build generates one automatically that:
 
@@ -122,7 +132,7 @@ GitHub Pages only serves real files. A URL like `/qrx/wiki` has no matching file
 
 This makes deep links and page refreshes work normally on GitHub Pages despite there being no actual server-side routing.
 
-## What the Bootloader Does
+### What the Bootloader Does
 
 The bootloader runs on every page load, after the kernel has initialized its DB helpers. It:
 
@@ -137,11 +147,16 @@ The bootloader runs on every page load, after the kernel has initialized its DB 
   <img width="400" height="225" alt="559857186-2b1b043a-e416-4a56-974f-341eec92e629" src="https://github.com/user-attachments/assets/63c8c8b1-a24c-44cc-b91e-5ad1601279aa" />
 </div>
 
------------------------------
 
-# Server
+<br>
+<hr>
+<br>
 
-## Setup
+
+
+## Server
+
+### Setup
 
 Rename `TEMPLATE.env` to `.env` before starting the server:
 
@@ -169,7 +184,7 @@ QRX_PORT=3000
 
 `QRX_SYNC_KEY` acts as a shared secret between your kernel and the server. Any `?w=` write that persists to disk sends this key in the `Authorization` header — without it, `/write` returns 401. Keep it out of version control.
 
-## Running
+### Running
 
 ```
 npm run build   # compile kernel + generate QR
@@ -184,7 +199,7 @@ Server active on http://0.0.0.0:3000
 
 In development you can run `npm run start` without building first if `dist/` already exists. The two processes are independent.
 
-## Namespaces
+### Namespaces
 
 All data is organized into namespaces — each one maps to a directory under `data/`. The active namespace for a given browser session is determined by:
 
@@ -200,7 +215,7 @@ There are three visibility tiers:
 
 The `main` namespace acts as a system-level fallback: if a key isn't found in the active namespace, `/read` tries `data/main/` before giving up.
 
-## data/index.json
+### data/index.json
 
 `data/index.json` is a flat JSON array of every publicly readable `namespace/key` path the server knows about, e.g.:
 
@@ -217,7 +232,7 @@ The bootloader fetches this file on every page load to know what keys exist with
 
 URL-style keys (e.g. from `?u=` fetches) are stored on disk with `://` encoded as `%3A%2F` to avoid `path.join` collapsing the double slash. The index always contains the decoded original key so the kernel never sees the encoded form.
 
-## data/index.private.json
+### data/index.private.json
 
 `data/index.private.json` is the same structure as `index.json` but contains only namespaces listed in `QRX_PRIVATE_NAMESPACES`. It lives in `data/` rather than `public/data/`, so it is never served as a static file and never included in the GitHub Pages build.
 
@@ -237,7 +252,7 @@ After that, on every page load the bootloader will:
 
 If `SYNC_KEY` is absent or wrong, the private fetch silently fails and only public content is loaded. Never set `SYNC_KEY` on a shared or public device.
 
-## URL Caching (`?u=`)
+### URL Caching (`?u=`)
 
 When the kernel fetches a URL via `?u=https://...`, it uses a network-first, cache-fallback strategy:
 
@@ -247,7 +262,7 @@ When the kernel fetches a URL via `?u=https://...`, it uses a network-first, cac
 
 The `cache` namespace is always publicly readable — its contents were already public by definition since they came from external URLs. This means cached remote content survives across sessions and devices that share the same server.
 
-## Server-Sent Events (`/stream`)
+### Server-Sent Events (`/stream`)
 
 The server exposes a `/stream` endpoint that pushes real-time write notifications to connected clients via SSE. Whenever a `/write` succeeds, all connected clients receive a JSON event:
 
@@ -259,7 +274,7 @@ This allows multiple browser tabs or devices to react to writes without polling.
 
 If `QRX_SYNC_KEY` is set, `/stream` requires `?auth=your-secret` in the URL to connect.
 
-## PWA
+### PWA
 
 QRx registers as a Progressive Web App on first load. The service worker (generated by VitePWA/Workbox) caches all static assets — JS, CSS, HTML, icons, and JSON — so the kernel loads instantly offline after the first visit. It uses `skipWaiting` and `clientsClaim` so updates propagate to all tabs immediately without a manual refresh cycle.
 
@@ -269,11 +284,15 @@ The PWA manifest and SW registration script are injected into `<head>` during th
   <img width="702" height="932" alt="PXL_20260518_184130243~2" src="https://github.com/user-attachments/assets/d5f0799f-f6f9-44ef-a6c2-ebe7943feb10" />
 </div>
 
------------------------------
 
-# Tips
+<br>
+<hr>
+<br>
 
-## Hotloading System Prompts
+
+## Tips
+
+### Hotloading System Prompts
 System prompts can get massive, making them impossible to pass via standard URL configuration (`?s=You are a...`) without hitting browser parameter length constraints. 
 
 Instead, you can save your system prompt as a standard text file in your database (e.g., under `system`) and use the `?x` (execute) trick to read it from the database and inject it straight into the kernel's local storage:
