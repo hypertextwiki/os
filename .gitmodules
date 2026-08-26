@@ -1,0 +1,3 @@
+[submodule "data/reddit"]
+	path = data/reddit
+	url = https://github.com/hypertextwiki/reddit
