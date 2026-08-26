@@ -14,6 +14,26 @@ This qr encodes an html file turning any browser since the 1990s into an offline
 
 -----------------------------
 
+## Local Setup
+
+### Requirements:
+- git - https://git-scm.com/install/
+- nodejs - https://nodejs.org/en/download
+
+### Terminal Commands:
+```bash
+# clone the project and dependencies
+git clone --recursive https://github.com/Open-Research-Institute/sensemaker
+
+# install dependencies
+npm run install
+
+# start the server on http://localhost:8080
+npm start
+```
+
+-----------------------------
+
 # Core flags
 The above Kernel exposes the following URL `?query` params
 
