@@ -6,8 +6,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node --env-file=.env servers/local.js",
-    "build": "vite build",
-    "build:github": "GITHUB_PAGES=true node servers/github/build.js && GITHUB_PAGES=true vite build"
+    "build": "vite build && npm run build:llms",
+    "build:github": "GITHUB_PAGES=true node servers/github.js && GITHUB_PAGES=true vite build",
+    "build:llms": "node scripts/build-llms.js"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

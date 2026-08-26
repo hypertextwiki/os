@@ -17,7 +17,7 @@ import { existsSync } from 'fs'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const ROOT = resolve(__dirname, '../..')
+const ROOT = resolve(__dirname, '..')
 const DATA_DIR = join(ROOT, 'data')
 const PUBLIC_DATA_DIR = join(ROOT, 'public', 'data')
 const INDEX_PATH = join(PUBLIC_DATA_DIR, 'index.json')
