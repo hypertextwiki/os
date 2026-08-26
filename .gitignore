@@ -9,3 +9,6 @@ data/*
 !data/reddit/
 folder-structure.txt
 context.txt
+data/main/src/*
+public/llms.txt
+public/llms-full.txt

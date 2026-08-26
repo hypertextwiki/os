@@ -5,10 +5,10 @@
   "description": "a hypertext based generative Operating System",
   "main": "index.js",
   "scripts": {
-    "start": "node --env-file=.env servers/local.js",
-    "build": "vite build && npm run build:llms",
-    "build:github": "GITHUB_PAGES=true node servers/github.js && GITHUB_PAGES=true vite build",
-    "build:llms": "node scripts/build-llms.js"
+    "start": "npm run build && node --env-file=.env servers/local.js",
+    "build": "npm run build:llms && vite build ",
+    "build:github": "npm run build:llms && GITHUB_PAGES=true node servers/github.js && GITHUB_PAGES=true vite build",
+    "build:llms": "node scripts/copy-src.js && node scripts/build-llms.js"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
