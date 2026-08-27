@@ -179,6 +179,10 @@ function buildServerBootloader(base) {
  *     fetch(`${base}data/${ns}/${key}`) instead of fetch('${base}read', { method: 'POST', ... })
  *   - No hostname-based NS resolution (server.js injects window.NS at serve
  *     time; that doesn't exist on static hosting, so we just fall back to 'main').
+ *   - Installs a read-through miss handler: stubs are zero-byte placeholders
+ *     marking unexplored nodes, so any read that comes back empty is fetched
+ *     from the static data/ tree on demand (with a main-namespace fallback,
+ *     mirroring the server's /read) and cached back into IndexedDB.
  */
 function buildStaticBootloader(base) {
   return `
@@ -187,8 +191,39 @@ function buildStaticBootloader(base) {
 
       (async function boot() {
 
-        if (typeof getDB === 'undefined' || typeof keys === 'undefined' || typeof write === 'undefined') {
-          return setTimeout(boot, 50);
+        if (typeof getDB === 'undefined' || typeof keys === 'undefined' || typeof write === 'undefined' || typeof read === 'undefined') {
+          return setTimeout(boot, 0);
+        }
+
+        /**
+         * Read-through miss handler ("lazy stub hydration").
+         * Installed synchronously before any await so it is guaranteed to be
+         * in place before run() reads anything. A zero-byte value means
+         * "stub" (unexplored territory), so fetch the real file from the
+         * static data/ tree and cache it back into IndexedDB. This is the
+         * static equivalent of boot/sync's network-first read() on server
+         * deployments, and makes read('dep').then(...) a valid import idiom
+         * on static hosting.
+         */
+        if (!window._qrxLazyRead) {
+          window._qrxLazyRead = true;
+          var _read = window.read;
+          var _tried = {};
+          window.read = async function (k, d) {
+            var v = await _read(k, d);
+            if (v) return v;
+            var key = k || filename;
+            var ns = (d && d.name) ? d.name : (typeof d === 'string' ? d : DB);
+            var id = ns + '/' + key;
+            if (_tried[id]) return v;
+            _tried[id] = 1;
+            try {
+              var r = await fetch('${base}data/' + ns + '/' + key);
+              if (!r.ok && ns !== 'main') r = await fetch('${base}data/main/' + key);
+              if (r.ok && (v = await r.text())) await write(v, key, ns);
+            } catch (e) {}
+            return v;
+          };
         }
 
         try {
