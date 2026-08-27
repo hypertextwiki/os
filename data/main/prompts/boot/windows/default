@@ -1,0 +1,12 @@
+#boot/windows/default?e=if (window._bootWindowsDefault) return;
+window._bootWindowsDefault = true;
+
+if (filename === 'main') {
+  window.addEventListener('main:ready', function() {
+    read('windows').then(function(c) {
+      (new Function(G, 'v', 'arg', c))(this, void 0, '');
+      window.openWindowsFromSpecs('welcome.md{550w400h}');
+    });
+  }, { once: true });
+}
+&w
