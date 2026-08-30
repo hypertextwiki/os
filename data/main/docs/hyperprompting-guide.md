@@ -12,6 +12,7 @@ Instructions for the assistant when the user is working in the QRx hyperpromptin
 - Newlines only ever appear *inside* `&p=` prompt values. Never put a newline between `&w` and `&a=1` — the browser reads it as a literal return character and breaks the tape.
 - The generated code is concatenated scripts in one file. Each `&p=` step should output exactly one SCRIPT tag (or style/fragment), nothing more.
 - The executing model has **no conception of the hyperprompt protocol**. Never instruct it about escaping, the tape, or the kernel. It just sees plain English and emits pure JS. Only the tape author (you, the assistant) handles URL encoding: `%3F` for `?`, `%26` for `&`, `%2B` for `+`, `%23` for `#` inside prompt values.
+- A tape is executable code. Never author `&k=` (API keys) into shared tapes, and never run a stranger's tape with secrets in localStorage — `?x=` can read them.
 
 ## 2. The Prime Directive
 
@@ -45,6 +46,40 @@ The model samples from your wording. Ambiguity IS the bug.
 3. Give the smallest possible chain fix — quote the exact replacement bullet(s), or the full chain segment if the user asks (never make them piece fragments together).
 4. Binary answers when the user asks a binary question ("should I see dots yet?" → "yes, because…"). No tape rewrites unless asked.
 5. Console-verifiable checks are gold (`window.particles[0].x` vs `window.cam`) — offer them so the user can confirm a diagnosis without editing anything.
+6. "Works on localhost, fails on GitHub Pages" is almost always a **stub hydration** bug:
+   localhost's boot/sync network-first read() masks empty stubs. Check the key's
+   IndexedDB value — `''` means it was never hydrated.
+7. The kernel strips the query from location.hash into `localStorage._q` after the first
+   run, so the bootloader only sees query keys in the hash on the FIRST load. Repro
+   every bug twice: fresh profile (incognito) and warm profile take different paths.
+8. Ordering: boot/* files run before the tape on every navigation; `main:ready` fires
+   during hydrate. A listener registered in a boot file sees tape-installed globals.6. "Works on localhost, fails on GitHub Pages" is almost always a **stub hydration** bug:
+   localhost's boot/sync network-first read() masks empty stubs. Check the key's
+   IndexedDB value — `''` means it was never hydrated.
+7. The kernel strips the query from location.hash into `localStorage._q` after the first
+   run, so the bootloader only sees query keys in the hash on the FIRST load. Repro
+   every bug twice: fresh profile (incognito) and warm profile take different paths.
+8. Ordering: boot/* files run before the tape on every navigation; `main:ready` fires
+   during hydrate. A listener registered in a boot file sees tape-installed globals.
+
+## 6. Dependencies between files (the read idiom)
+
+- **There is no import statement — `read()` IS the import.** A file that needs another
+  file's globals: `read('windows').then(c => { (new Function(G, 'v', 'arg', c))(this, void 0, ''); /* globals now live */ })`.
+  Parallel deps: `Promise.all(['a','b'].map(k => read(k))).then(...)`.
+- **Stubs are zero-byte.** Bootloaders write every indexed key as `''` (an unexplored
+  node) and only pre-hydrate the target key, URL query keys, and `boot/*`. Anything
+  else your code touches is empty until something reads it.
+- **Reads hydrate on miss on every host.** Server: `boot/sync` makes read() network-first
+  via POST /read. Static (GitHub Pages): the bootloader wraps read() to GET
+  `data/<ns>/<key>` (main-namespace fallback) and caches it into IndexedDB. The idiom
+  works everywhere — but only through `read()`, never raw IndexedDB access.
+- **Assert after importing.** An unhydrated dep fails three hops later as
+  `window.foo is not a function` with a minified stack. After eval, check
+  `typeof window.theThing === 'function'` and throw naming the missing *node*
+  (`missing dep: windows`), never the symbol.
+- **No dependency declarations** — no frontmatter, no manifests. The graph may be
+  unbounded; crawling IS the traversal. Revisit only if a measured waterfall hurts.
 
 ## 7. Working with this user (read this)
 

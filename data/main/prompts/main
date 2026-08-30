@@ -102,5 +102,15 @@
   - for each modified item create an <option> with that value and append it to the datalist
   - append the datalist to document.body
   - add a focusin listener on document: if event.target is an INPUT, set its list attribute to 'sys-file-list'
+&a=1&p=TASK: output SCRIPT tag that makes window dragging and resizing work on touchscreens
+  - the existing code only listens for mousedown, mousemove, and mouseup — this script is a shim that translates single-finger touch into those same mouse events
+  - add touchstart, touchmove, touchend, and touchcancel listeners on document with { passive: false }
+  - on touchstart: if event.touches.length is not 1, do nothing
+  - only activate the shim when the touch target is inside a '.title-bar' element or its computed cursor style contains 'resize' — but if the touch target is inside a BUTTON element, do nothing and let the browser's native tap-to-click behavior work
+  - when activating: call event.preventDefault() so the browser does not also fire its own emulated mouse events, remember the target element, and dispatch a real MouseEvent of type 'mousedown' with bubbles: true and cancelable: true at the touch's clientX and clientY on that target
+  - on touchmove: if the shim is active, call event.preventDefault() to stop page scrolling and dispatch 'mousemove' with the current touch coordinates on the remembered target
+  - on touchend or touchcancel: dispatch 'mouseup' on the remembered target, then forget it
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
 &w&a=1&e=<script>window.dispatchEvent(new CustomEvent('main:ready'))</script>
 &w

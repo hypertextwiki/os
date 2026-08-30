@@ -1345,4 +1345,72 @@ window.addEventListener('keydown', function(event) {
 
   applyFilter(false);
 })();
+</script><script>
+(function() {
+  var activeTarget = null;
+
+  function dispatchMouse(type, touch, target) {
+    var mouseEvent = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+      screenX: touch.screenX,
+      screenY: touch.screenY,
+      button: 0,
+      buttons: type === 'mouseup' ? 0 : 1
+    });
+    target.dispatchEvent(mouseEvent);
+  }
+
+  document.addEventListener('touchstart', function(event) {
+    if (event.touches.length !== 1) return;
+
+    var target = event.target;
+    if (!target || target.nodeType !== 1) return;
+
+    // Let native tap-to-click handle buttons
+    if (target.closest('button')) return;
+
+    var inTitleBar = target.closest('.title-bar');
+
+    var cursor = '';
+    try {
+      cursor = window.getComputedStyle(target).cursor || '';
+    } catch (err) {}
+    var isResizeHandle = cursor.indexOf('resize') !== -1;
+
+    if (!inTitleBar && !isResizeHandle) return;
+
+    // Suppress the browser's own emulated mouse events
+    event.preventDefault();
+
+    activeTarget = target;
+    dispatchMouse('mousedown', event.touches[0], activeTarget);
+  }, { passive: false });
+
+  document.addEventListener('touchmove', function(event) {
+    if (!activeTarget) return;
+    if (event.touches.length !== 1) return;
+
+    // Stop page scrolling while dragging/resizing
+    event.preventDefault();
+
+    dispatchMouse('mousemove', event.touches[0], activeTarget);
+  }, { passive: false });
+
+  function endShim(event) {
+    if (!activeTarget) return;
+
+    event.preventDefault();
+
+    var touch = event.changedTouches[0];
+    dispatchMouse('mouseup', touch, activeTarget);
+    activeTarget = null;
+  }
+
+  document.addEventListener('touchend', endShim, { passive: false });
+  document.addEventListener('touchcancel', endShim, { passive: false });
+})();
 </script>
