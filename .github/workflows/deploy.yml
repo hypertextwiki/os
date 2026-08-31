@@ -121,7 +121,7 @@ jobs:
           # should be publicly accessible in the built site. This mirrors the
           # .env variable QRX_PUBLIC_NAMESPACES used in local development.
           # Only 'main' is exposed here; add more if needed (e.g., "main,demo").
-          QRX_PUBLIC_NAMESPACES: main
+          QRX_PUBLIC_NAMESPACES: main,org,reddit,cache
 
         # The actual build command. 'build:github' is a custom npm script
         # (defined in package.json) that should produce static output in ./dist.
