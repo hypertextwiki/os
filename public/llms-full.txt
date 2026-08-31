@@ -381,120 +381,7 @@ QRX_PORT=3000
 
 <context path="context.txt">
 <context>
-<file path="data/main/prompts/main">
-#main?e&w&p=TASK: output HTML wireframe for a windows 95 simulator
-  - start menu with "🪟 Start" button and  time area (no start panel yet)
-  - a hidden, reusable window template with
-    - title
-    - min, max, close buttons
-    - address bar with refresh icon and "Go" button
-  - windows teal background
-  - basic css reset like margin: 0 for body and box-sizing
-  - no javascript
-  - don't include html/head/body tags just the wireframe
-&w&a=1&p=TASK: output SCRIPT tag for rendering top level icons
-  - loop through each indexeddb record
-    - the database is in the global strings `window.DB` and the table name is in `window.FILES`
-  - keys can have slashes in them denoting folders
-  - create a 📄 icon for every top level file
-    - the label is everything after the final / (or the whole string)
-  - create a 📁 icon for every top level folder
-    - the label is everything before the first / at that level
-&w&a=1&p=TASK: output SCRIPT tag for File Explorer
-  - when folder icon is single clicked or tapped, show a window for it
-  - set the addressbar to full/folder/path
-  - focus the addressbar on open
-  - generate more icons and folders for the current folder inside the window
-  - when clicking on a folder inside File Explorer update the addressbar and icons
-  - clicking the Go button or pressing enter in the address bar navigates that window
-  - don't handle other window interaction yet
-&w&a=1&p=TASK: output SCRIPT tag for showing file windows on icon clicks
-  - name the file opening function exactly `openFileWindow` and assign it to `window.openFileWindow`
-  - when file icon is single clicked or tapped, show a window for it
-  - show a full size iframe in the windows content area
-  - set the addressbar to full/file/path
-  - set the iframe path to just `${window.DB}%23${full/file/path}`
-  - listen for %23hash changes inside the iframe and update the addressbar on change (be mindful of loops)
-  - keep addressbar and iframe synced
-  - when user presses enter in the addressbar or presses Go, the iframe should update to the new URL
-  - do this for file icons in folders too
-  - don't handle other window interaction yet
-  - URLs must always be in the form db%23file
-    - if no db name is present assume ${window.DB}
-    - if no %23 hash symbol is present, assume the whole thing is a hash
-  - example: if DB='main' then %23chat should map to main%23chat
-  - example: if DB='apps/paint' and file is 'art/selfie' then it should map to apps/paint%23art/selfie
-&w&a=1&p=TASK: output SCRIPT tag for handling windows
-  - make windows draggable by dragging the titlebar
-  - make windows resizable
-    - make sure any window body elements and iframe resize to fit new window size too (this often fails to work due to nested elements)
-  - make windows closable
-  - make windows maximizable (and restore size when pressed again)
-  - make windows minizable (and show an icon for it in the startbar
-&w&a=1&p=TASK: update taskbar time area to show live clock and battery status
-  - locate the existing time area element inside the taskbar
-  - create a function that gets new Date and formats it as h:mm A
-  - use setInterval to run this clock function every 1000ms and update the DOM
-  - call navigator.getBattery and resolve the promise
-  - inside the promise create an update function that reads battery level
-  - multiply the level by 100 to get the percent value
-  - check the charging boolean
-  - format the output as a plug icon if charging or a battery icon if not alongside the percent
-  - add event listeners for levelchange and chargingchange to automatically update the ui
-  - render both the battery string and the clock string side by side in the time area element
-&w&a=1&p=TASK: make the refresh icon reload the window iframe
-  - use event delegation to check if the clicked target matches the template window refresh buttons
-  - if so reload that windows iframe
-&w&a=1&p=TASK: output a SCRIPT tag that adds global Speech-to-Text with DEEP DEBUGGING
-  - initialize window.SpeechRecognition || window.webkitSpeechRecognition with continuous = true and interimResults = false
-  - console.log("Speech API found:", !!(window.SpeechRecognition || window.webkitSpeechRecognition))
-  - create a 🎙️ button and append it to the taskbar. console.log("Mic button added")
-  - on the button's 'mousedown' event: call event.preventDefault() to prevent focus stealing, toggle a listening boolean, and console.log("Mic clicked. State listening:", state)
-  - when listening: change button text to 🔴 and call recognition.start() inside a try/catch that console.errors failures
-  - when stopped: change to 🎙️ and call recognition.stop()
-  - add recognition.onstart: console.log("Speech started successfully")
-  - add recognition.onerror: console.error("Speech error:", event.error)
-  - add recognition.onend: console.log("Speech ended"). if state is listening, set 200ms timeout to try recognition.start() again
-  - on recognition result: get the final transcript string and console.log("Heard:", transcript)
-  - traverse to find the focused field: var el = document.activeElement; console.log("Base active element:", el)
-  - while el is an IFRAME, wrap in try/catch: switch el to el.contentDocument.activeElement and console.log("Iframe active element:", el). catch and console.error the error.
-  - if el is an INPUT or TEXTAREA: console.log("Target found!", el), then append the transcript (adding a leading space if needed), update el.value, and dispatch a new Event('input', { bubbles: true })
-  - if el is NOT an input/textarea: console.warn("Active element is not a text field. Text discarded.")
-  - wrap in an async IIFE and use var for all variables
-&w&a=1&p=TASK: output a SCRIPT tag that binds Ctrl+Space to open or focus the run window
-  - add a keydown event listener to the window
-  - if event.ctrlKey is true and (event.code is 'Space' or event.key is ' ')
-  - call event.preventDefault()
-  - FIRST, prevent duplicates: search the DOM for an input field whose value ends with 'run'
-  - if found, call .focus() on it and return
-  - IF NOT FOUND, we must use the existing UI to spawn it so all event listeners attach correctly
-  - query the DOM for all file icon elements
-  - loop through them, get their textContent, replace the '📄' character, and trim whitespace
-  - if the cleaned text exactly equals 'run', call .click() on that element
-  - then use setTimeout for 100ms
-  - inside the timeout, search the DOM again for the newly spawned input field whose value ends with 'run'
-  - if found, call .focus() on it
-  - use var for all variables
-&w&a=1&p=TASK: output a SCRIPT tag that builds a global typeahead datalist from the file index
-  - wrap everything in an async IIFE using var for all variables
-  - fetch (BASE %2B 'data/index.json') and parse as JSON — if it fails use an empty array  
-  - attempt to read localStorage.getItem('SYNC_KEY') into a var
-  - if SYNC_KEY is truthy, also fetch '/data/index.private.json' with header Authorization: SYNC_KEY and parse as JSON — if this fetch fails or returns non-ok, use an empty array
-  - merge both arrays into one deduplicated list using a Set
-  - for each item in the merged list, replace the first '/' with '%23' (namespace/key → namespace%23key)
-  - create a <datalist> element with id 'sys-file-list'
-  - for each modified item create an <option> with that value and append it to the datalist
-  - append the datalist to document.body
-  - add a focusin listener on document: if event.target is an INPUT, set its list attribute to 'sys-file-list'
-&w&a=1&e=<script>window.dispatchEvent(new CustomEvent('main:ready'))</script>
-&w
-
-</file>
-</context>
-
-</context>
-
-<context path="data/main/docs/hyperprompting-guide.md">
+<file path="data/main/docs/hyperprompting-guide.md">
 # Hyperprompting Guide — Lessons from the Skybiome Build
 
 Instructions for the assistant when the user is working in the QRx hyperprompting protocol. Distilled from a full multi-chain build session (a Bluesky particle-life simulation) including every bug class we hit and how it was fixed (see <context src="./data/main/prompts/skybiome.html" />)
@@ -542,6 +429,103 @@ The model samples from your wording. Ambiguity IS the bug.
 3. Give the smallest possible chain fix — quote the exact replacement bullet(s), or the full chain segment if the user asks (never make them piece fragments together).
 4. Binary answers when the user asks a binary question ("should I see dots yet?" → "yes, because…"). No tape rewrites unless asked.
 5. Console-verifiable checks are gold (`window.particles[0].x` vs `window.cam`) — offer them so the user can confirm a diagnosis without editing anything.
+
+## 7. Working with this user (read this)
+
+- They are the architect; you are the harness. They run generations themselves via API. Your job: protocol-correct chains, precise diagnosis, honest tradeoffs.
+- **Do not create files unless asked.** Deliver chains inline in code blocks.
+- **Do not add features unasked** (collapsible sections, extra buttons). Scope creep in chains = bugs in output.
+- Keep responses short. When the user is frustrated, get shorter. Never narrate your process; show the fix.
+- They correct sharply when you break protocol ("the chain is the spec") — accept immediately, restate the principle to confirm understanding, move on.
+
+</file>
+</context>
+
+</context>
+
+<context path="data/main/docs/hyperprompting-guide.md">
+# Hyperprompting Guide — Lessons from the Skybiome Build
+
+Instructions for the assistant when the user is working in the QRx hyperprompting protocol. Distilled from a full multi-chain build session (a Bluesky particle-life simulation) including every bug class we hit and how it was fixed (see <context src="./data/main/prompts/skybiome.html" />)
+
+---
+
+## 1. The Protocol (how the machine works)
+
+- The URL fragment is a sequential machine tape. `#filename?` followed by `&flag=value` steps.
+- The tape drives an accumulator (`v`) that becomes the generated file. `&w` writes the accumulator to the database. `&a=1` switches to append mode.
+- **Chain shape:** every chain starts with `&a=1` and ends with `&w`. The opening is `#name.html?e&w` (echo reset + write), then each chain is `&a=1&p=TASK: ...&w`.
+- Newlines only ever appear *inside* `&p=` prompt values. Never put a newline between `&w` and `&a=1` — the browser reads it as a literal return character and breaks the tape.
+- The generated code is concatenated scripts in one file. Each `&p=` step should output exactly one SCRIPT tag (or style/fragment), nothing more.
+- The executing model has **no conception of the hyperprompt protocol**. Never instruct it about escaping, the tape, or the kernel. It just sees plain English and emits pure JS. Only the tape author (you, the assistant) handles URL encoding: `%3F` for `?`, `%26` for `&`, `%2B` for `+`, `%23` for `#` inside prompt values.
+- A tape is executable code. Never author `&k=` (API keys) into shared tapes, and never run a stranger's tape with secrets in localStorage — `?x=` can read them.
+
+## 2. The Prime Directive
+
+**The chain is the source code. The generated file is build output.**
+
+- Never hand-patch generated code without a corresponding chain edit. Never tune a chain to accommodate what the model happened to emit. Intent flows one direction only: chain → regenerate → code.
+- Exception the user accepts: for *trivial* styling-only chains (pure CSS), a parallel manual CSS edit is fine, with the chain updated so future regenerations match. When in doubt, regenerate.
+- When fixing a bug: diagnose in the generated file, fix the chain, re-run only the affected segment. The user can snip segments and their generated code out of the accumulator.
+- Before changing any chain, do a dependency check: which later chains read the globals this chain creates? A chain whose globals are consumed by no one else is a leaf — safe to swap. State the dependency analysis explicitly.
+
+## 3. Chain-Authoring Grammar (this is where all the bugs live)
+
+The model samples from your wording. Ambiguity IS the bug.
+
+- **Never give example numbers.** "For example 20000px" produces a hardcoded 20000. To a model, an example is the spec. Express all dimensions as multiples/percentages of screen size (`canvas.clientWidth`, viewport %).
+- **Never use named CSS colors.** "green" becomes `#008000` (dim). Give exact hex values: `post #ff2a2a, thread #ffe600, reply #39ff14, like #4dc3ff, repost #e26bff, quote #ffffff`.
+- Prefer creative-coding grammar over engineering-speak: "random hue between X and Y, saturation 100%" constrains the output distribution; adjectives don't.
+- One concern per chain. Each chain's prompt ends with: `use var for all variables` and `ONLY generate this SCRIPT tag, do not return the previous code`.
+- Pin IDs and global names exactly (`window.particles`, `window.cam`, `window.forceMatrix`, `window.simConfig`, `window.paused`) — later chains contract against them.
+- If a value must be live-tunable later: put it on a `window.*` config object and require the loop to **read it live every frame**. Forbid caching derived values (a precomputed `RADIUS_SQ` silently kills a radius slider).
+- Cross-chain mutation contract: **mutate shared objects in place, never replace them** (`window.forceMatrix`, `window.simConfig`) — earlier scripts may hold references.
+
+## 4. External APIs — verify, don't assume
+
+- **Read the docs every single time, even if you checked earlier in the session.** Context is not memory. (User's explicit rule, stated forcefully.)
+
+## 5. Debugging workflow that worked
+
+1. Get the actual generated file from the user; grep/read it before theorizing.
+2. Classify the bug: API/auth, spec-ambiguity, cross-chain contract, or pure CSS.
+3. Give the smallest possible chain fix — quote the exact replacement bullet(s), or the full chain segment if the user asks (never make them piece fragments together).
+4. Binary answers when the user asks a binary question ("should I see dots yet?" → "yes, because…"). No tape rewrites unless asked.
+5. Console-verifiable checks are gold (`window.particles[0].x` vs `window.cam`) — offer them so the user can confirm a diagnosis without editing anything.
+6. "Works on localhost, fails on GitHub Pages" is almost always a **stub hydration** bug:
+   localhost's boot/sync network-first read() masks empty stubs. Check the key's
+   IndexedDB value — `''` means it was never hydrated.
+7. The kernel strips the query from location.hash into `localStorage._q` after the first
+   run, so the bootloader only sees query keys in the hash on the FIRST load. Repro
+   every bug twice: fresh profile (incognito) and warm profile take different paths.
+8. Ordering: boot/* files run before the tape on every navigation; `main:ready` fires
+   during hydrate. A listener registered in a boot file sees tape-installed globals.6. "Works on localhost, fails on GitHub Pages" is almost always a **stub hydration** bug:
+   localhost's boot/sync network-first read() masks empty stubs. Check the key's
+   IndexedDB value — `''` means it was never hydrated.
+7. The kernel strips the query from location.hash into `localStorage._q` after the first
+   run, so the bootloader only sees query keys in the hash on the FIRST load. Repro
+   every bug twice: fresh profile (incognito) and warm profile take different paths.
+8. Ordering: boot/* files run before the tape on every navigation; `main:ready` fires
+   during hydrate. A listener registered in a boot file sees tape-installed globals.
+
+## 6. Dependencies between files (the read idiom)
+
+- **There is no import statement — `read()` IS the import.** A file that needs another
+  file's globals: `read('windows').then(c => { (new Function(G, 'v', 'arg', c))(this, void 0, ''); /* globals now live */ })`.
+  Parallel deps: `Promise.all(['a','b'].map(k => read(k))).then(...)`.
+- **Stubs are zero-byte.** Bootloaders write every indexed key as `''` (an unexplored
+  node) and only pre-hydrate the target key, URL query keys, and `boot/*`. Anything
+  else your code touches is empty until something reads it.
+- **Reads hydrate on miss on every host.** Server: `boot/sync` makes read() network-first
+  via POST /read. Static (GitHub Pages): the bootloader wraps read() to GET
+  `data/<ns>/<key>` (main-namespace fallback) and caches it into IndexedDB. The idiom
+  works everywhere — but only through `read()`, never raw IndexedDB access.
+- **Assert after importing.** An unhydrated dep fails three hops later as
+  `window.foo is not a function` with a minified stack. After eval, check
+  `typeof window.theThing === 'function'` and throw naming the missing *node*
+  (`missing dep: windows`), never the symbol.
+- **No dependency declarations** — no frontmatter, no manifests. The graph may be
+  unbounded; crawling IS the traversal. Revisit only if a measured waterfall hurts.
 
 ## 7. Working with this user (read this)
 
@@ -1641,7 +1625,7 @@ const htmlMinifierPlugin = () => ({
       processConditionalComments: true,
       removeOptionalTags: true,
     })
-    return `<!DOCTYPE html><html><head></head><body>${minified}</body></html>`
+    return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>${minified}</body></html>`
   },
 })
 
@@ -1790,6 +1774,10 @@ function buildServerBootloader(base) {
  *     fetch(`${base}data/${ns}/${key}`) instead of fetch('${base}read', { method: 'POST', ... })
  *   - No hostname-based NS resolution (server.js injects window.NS at serve
  *     time; that doesn't exist on static hosting, so we just fall back to 'main').
+ *   - Installs a read-through miss handler: stubs are zero-byte placeholders
+ *     marking unexplored nodes, so any read that comes back empty is fetched
+ *     from the static data/ tree on demand (with a main-namespace fallback,
+ *     mirroring the server's /read) and cached back into IndexedDB.
  */
 function buildStaticBootloader(base) {
   return `
@@ -1798,8 +1786,39 @@ function buildStaticBootloader(base) {
 
       (async function boot() {
 
-        if (typeof getDB === 'undefined' || typeof keys === 'undefined' || typeof write === 'undefined') {
-          return setTimeout(boot, 50);
+        if (typeof getDB === 'undefined' || typeof keys === 'undefined' || typeof write === 'undefined' || typeof read === 'undefined') {
+          return setTimeout(boot, 0);
+        }
+
+        /**
+         * Read-through miss handler ("lazy stub hydration").
+         * Installed synchronously before any await so it is guaranteed to be
+         * in place before run() reads anything. A zero-byte value means
+         * "stub" (unexplored territory), so fetch the real file from the
+         * static data/ tree and cache it back into IndexedDB. This is the
+         * static equivalent of boot/sync's network-first read() on server
+         * deployments, and makes read('dep').then(...) a valid import idiom
+         * on static hosting.
+         */
+        if (!window._qrxLazyRead) {
+          window._qrxLazyRead = true;
+          var _read = window.read;
+          var _tried = {};
+          window.read = async function (k, d) {
+            var v = await _read(k, d);
+            if (v) return v;
+            var key = k || filename;
+            var ns = (d && d.name) ? d.name : (typeof d === 'string' ? d : DB);
+            var id = ns + '/' + key;
+            if (_tried[id]) return v;
+            _tried[id] = 1;
+            try {
+              var r = await fetch('${base}data/' + ns + '/' + key);
+              if (!r.ok && ns !== 'main') r = await fetch('${base}data/main/' + key);
+              if (r.ok && (v = await r.text())) await write(v, key, ns);
+            } catch (e) {}
+            return v;
+          };
         }
 
         try {
@@ -3547,7 +3566,7 @@ const htmlMinifierPlugin = () => ({
       processConditionalComments: true,
       removeOptionalTags: true,
     })
-    return `<!DOCTYPE html><html><head></head><body>${minified}</body></html>`
+    return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>${minified}</body></html>`
   },
 })
 
@@ -3696,6 +3715,10 @@ function buildServerBootloader(base) {
  *     fetch(`${base}data/${ns}/${key}`) instead of fetch('${base}read', { method: 'POST', ... })
  *   - No hostname-based NS resolution (server.js injects window.NS at serve
  *     time; that doesn't exist on static hosting, so we just fall back to 'main').
+ *   - Installs a read-through miss handler: stubs are zero-byte placeholders
+ *     marking unexplored nodes, so any read that comes back empty is fetched
+ *     from the static data/ tree on demand (with a main-namespace fallback,
+ *     mirroring the server's /read) and cached back into IndexedDB.
  */
 function buildStaticBootloader(base) {
   return `
@@ -3704,8 +3727,39 @@ function buildStaticBootloader(base) {
 
       (async function boot() {
 
-        if (typeof getDB === 'undefined' || typeof keys === 'undefined' || typeof write === 'undefined') {
-          return setTimeout(boot, 50);
+        if (typeof getDB === 'undefined' || typeof keys === 'undefined' || typeof write === 'undefined' || typeof read === 'undefined') {
+          return setTimeout(boot, 0);
+        }
+
+        /**
+         * Read-through miss handler ("lazy stub hydration").
+         * Installed synchronously before any await so it is guaranteed to be
+         * in place before run() reads anything. A zero-byte value means
+         * "stub" (unexplored territory), so fetch the real file from the
+         * static data/ tree and cache it back into IndexedDB. This is the
+         * static equivalent of boot/sync's network-first read() on server
+         * deployments, and makes read('dep').then(...) a valid import idiom
+         * on static hosting.
+         */
+        if (!window._qrxLazyRead) {
+          window._qrxLazyRead = true;
+          var _read = window.read;
+          var _tried = {};
+          window.read = async function (k, d) {
+            var v = await _read(k, d);
+            if (v) return v;
+            var key = k || filename;
+            var ns = (d && d.name) ? d.name : (typeof d === 'string' ? d : DB);
+            var id = ns + '/' + key;
+            if (_tried[id]) return v;
+            _tried[id] = 1;
+            try {
+              var r = await fetch('${base}data/' + ns + '/' + key);
+              if (!r.ok && ns !== 'main') r = await fetch('${base}data/main/' + key);
+              if (r.ok && (v = await r.text())) await write(v, key, ns);
+            } catch (e) {}
+            return v;
+          };
         }
 
         try {

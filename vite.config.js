@@ -30,7 +30,7 @@ const htmlMinifierPlugin = () => ({
       processConditionalComments: true,
       removeOptionalTags: true,
     })
-    return `<!DOCTYPE html><html><head></head><body>${minified}</body></html>`
+    return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>${minified}</body></html>`
   },
 })
 
