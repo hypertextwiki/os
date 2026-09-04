@@ -1,0 +1,31 @@
+#windows?e&w&p=TASK: output pure JavaScript only, no HTML, no script tags, no markdown.
+
+Write a script that parses a window specs string and opens windows. The specs come from the global variable 'arg' when run as a param, but the logic must also be reusable by other scripts.
+
+'arg' is a pipe-separated list of window specs, for example: chat|edit{max}|run{50}|notes{640w480h}
+
+Structure to follow exactly:
+- define window.openWindowsFromSpecs = function(specs) { ... } containing ALL of the handler behavior below, operating on its 'specs' parameter
+- before registering any listener, remove any previous one: if (window._windowsHandler) window.removeEventListener('main:ready', window._windowsHandler);
+- define window._windowsHandler = function() { window.openWindowsFromSpecs(arg); }
+- only if filename === 'main' AND arg is a non-empty string, call window.addEventListener('main:ready', window._windowsHandler)
+
+Handler behavior (inside openWindowsFromSpecs):
+- split specs by pipe to get each spec
+- for each spec, use a regex to strip a trailing {modifier} from the end of the string
+  path is everything before the brace, modifier is the text inside, both trimmed
+- before the loop, count existing .window elements excluding #window-template, store as baseline
+- call window.openFileWindow(path) for each spec in order
+- after the loop use a single setTimeout of 100ms to apply modifiers
+- inside setTimeout query all .window elements excluding #window-template
+  new windows begin at the baseline index, match each to its spec by offset
+  'max': click button[aria-label="Maximize"] inside that window element
+  'min': click button[aria-label="Minimize"] inside that window element
+  pixel dimensions: test the modifier against regex /^(%3F:(\d%2B)w)%3F(%3F:(\d%2B)h)%3F$/
+    only treat as pixel dimensions if at least one group captured
+    group 1 sets style.width to that many px, group 2 sets style.height to that many px
+    400w means width 400px, 400h means height 400px, 640w480h means both
+  otherwise if the modifier is a numeric string: parse as integer n, set style.width to (n * window.innerWidth / 100) and style.height to (n * (window.innerHeight - 28) / 100), both as px strings
+  no modifier: skip
+- use var for all variables
+&w

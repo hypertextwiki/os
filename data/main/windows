@@ -1,0 +1,55 @@
+if (window._windowsHandler) window.removeEventListener('main:ready', window._windowsHandler);
+window.openWindowsFromSpecs = function(specs) {
+  var items = specs.split('|');
+  var modifierRe = /\{([^}]*)\}\s*$/;
+  var parsed = [];
+  var i;
+  for (i = 0; i < items.length; i++) {
+    var item = items[i];
+    var match = item.match(modifierRe);
+    var path;
+    var modifier = null;
+    if (match) {
+      modifier = match[1].trim();
+      path = item.replace(modifierRe, '').trim();
+    } else {
+      path = item.trim();
+    }
+    parsed.push({ path: path, modifier: modifier });
+  }
+  var baseline = document.querySelectorAll('.window:not(#window-template)').length;
+  for (i = 0; i < parsed.length; i++) {
+    window.openFileWindow(parsed[i].path);
+  }
+  setTimeout(function() {
+    var dimRe = /^(?:(\d+)w)?(?:(\d+)h)?$/;
+    var windows = document.querySelectorAll('.window:not(#window-template)');
+    for (var k = 0; k < parsed.length; k++) {
+      var modifier = parsed[k].modifier;
+      if (!modifier) continue;
+      var el = windows[baseline + k];
+      if (!el) continue;
+      if (modifier === 'max') {
+        var maxBtn = el.querySelector('button[aria-label="Maximize"]');
+        if (maxBtn) maxBtn.click();
+      } else if (modifier === 'min') {
+        var minBtn = el.querySelector('button[aria-label="Minimize"]');
+        if (minBtn) minBtn.click();
+      } else {
+        var dimMatch = modifier.match(dimRe);
+        if (dimMatch && (dimMatch[1] || dimMatch[2])) {
+          if (dimMatch[1]) el.style.width = dimMatch[1] + 'px';
+          if (dimMatch[2]) el.style.height = dimMatch[2] + 'px';
+        } else if (/^\d+$/.test(modifier)) {
+          var n = parseInt(modifier, 10);
+          el.style.width = (n * window.innerWidth / 100) + 'px';
+          el.style.height = (n * (window.innerHeight - 28) / 100) + 'px';
+        }
+      }
+    }
+  }, 100);
+};
+window._windowsHandler = function() { window.openWindowsFromSpecs(arg); };
+if (filename === 'main' && typeof arg === 'string' && arg.length > 0) {
+  window.addEventListener('main:ready', window._windowsHandler);
+}
