@@ -5,6 +5,7 @@ if (filename === 'main') {
   window.addEventListener('main:ready', function() {
     read('windows').then(function(c) {
       (new Function(G, 'v', 'arg', c))(this, void 0, '');
+      window.openWindowsFromSpecs('reddit#posts/hyperprompting/260702-hyperprompting-kernel.md{550w400h}');
       window.openWindowsFromSpecs('welcome.md{550w400h}');
     });
   }, { once: true });
