@@ -1,0 +1,704 @@
+<style>
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  :root {
+    --cell: 24px;
+  }
+
+  #A {
+    width: 100vw;
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #c0c0c0;
+    overflow: hidden;
+  }
+
+  #ms-panel {
+    background: #c0c0c0;
+    border: 3px solid;
+    border-color: #dfdfdf #7b7b7b #7b7b7b #dfdfdf;
+    box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #000000;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-family: Tahoma, "Segoe UI", "MS Sans Serif", Geneva, sans-serif;
+    font-size: 13px;
+  }
+
+  #ms-difficulty {
+    display: flex;
+    gap: 6px;
+  }
+
+  .ms-btn {
+    background: #c0c0c0;
+    border: 3px solid;
+    border-color: #dfdfdf #7b7b7b #7b7b7b #dfdfdf;
+    box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #000000;
+    padding: 4px 10px;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: 1;
+  }
+
+  .ms-btn.active,
+  .ms-btn:active {
+    border-color: #7b7b7b #dfdfdf #dfdfdf #7b7b7b;
+    box-shadow: inset 1px 1px 0 0 #000000, inset -1px -1px 0 0 #ffffff;
+  }
+
+  #ms-header {
+    border: 3px solid;
+    border-color: #7b7b7b #ffffff #ffffff #7b7b7b;
+    box-shadow: inset 1px 1px 0 0 #000000, inset -1px -1px 0 0 #dfdfdf;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 3px;
+  }
+
+  #ms-mines,
+  #ms-time {
+    background: #000000;
+    color: #ff0000;
+    font-family: monospace;
+    font-weight: bold;
+    font-size: 16px;
+    padding: 2px 4px;
+  }
+
+  #ms-board {
+    border: 3px solid;
+    border-color: #7b7b7b #ffffff #ffffff #7b7b7b;
+    box-shadow: inset 1px 1px 0 0 #000000, inset -1px -1px 0 0 #dfdfdf;
+    display: grid;
+    gap: 0;
+    min-height: calc(var(--cell) * 9);
+  }
+
+  .ms-cell {
+    width: var(--cell);
+    height: var(--cell);
+    background: #c0c0c0;
+    border: 3px solid;
+    border-color: #dfdfdf #7b7b7b #7b7b7b #dfdfdf;
+    box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #000000;
+    font-family: monospace;
+    font-weight: bold;
+    font-size: calc(var(--cell) * 0.6);
+    line-height: 1;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+  }
+
+  .ms-cell.open {
+    border: 1px solid #7b7b7b;
+    box-shadow: none;
+  }
+
+  .ms-cell.mine {
+    background: #ff0000;
+  }
+
+  .ms-cell.n1 { color: #0000ff; }
+  .ms-cell.n2 { color: #008000; }
+  .ms-cell.n3 { color: #ff0000; }
+  .ms-cell.n4 { color: #000080; }
+  .ms-cell.n5 { color: #800000; }
+  .ms-cell.n6 { color: #008080; }
+  .ms-cell.n7 { color: #000000; }
+  .ms-cell.n8 { color: #7b7b7b; }
+</style>
+
+<div id="ms-panel">
+  <div id="ms-difficulty">
+    <button type="button" class="ms-btn active" data-diff="beginner">Beginner</button>
+    <button type="button" class="ms-btn" data-diff="intermediate">Intermediate</button>
+    <button type="button" class="ms-btn" data-diff="expert">Expert</button>
+  </div>
+
+  <header id="ms-header">
+    <div id="ms-mines">010</div>
+    <button type="button" id="ms-reset" class="ms-btn">🙂</button>
+    <div id="ms-time">000</div>
+  </header>
+
+  <div id="ms-board"></div>
+</div><script>
+  window.msDifficulties = {
+    beginner: { rows: 9, cols: 9, mines: 10 },
+    intermediate: { rows: 16, cols: 16, mines: 40 },
+    expert: { rows: 16, cols: 30, mines: 99 }
+  };
+
+  window.msConfig = {
+    difficulty: "beginner",
+    rows: 9,
+    cols: 9,
+    mines: 10
+  };
+
+  var board = null;
+  var gameOver = false;
+  var gameWon = false;
+  var firstClick = true;
+  var flagCount = 0;
+  var openCount = 0;
+  var seconds = 0;
+  var timerId = null;
+
+  window.newGame = function () {
+    clearInterval(window.timerId);
+    window.timerId = null;
+    window.gameOver = false;
+    window.gameWon = false;
+    window.firstClick = true;
+    window.flagCount = 0;
+    window.openCount = 0;
+    window.seconds = 0;
+    window.board = null;
+    var minesLabel = String(window.msConfig.mines);
+    while (minesLabel.length < 3) {
+      minesLabel = "0" + minesLabel;
+    }
+    document.getElementById("ms-mines").innerText = minesLabel;
+    document.getElementById("ms-time").innerText = "000";
+    document.getElementById("ms-reset").innerText = "🙂";
+    if (window.renderBoard) {
+      window.renderBoard();
+    }
+    if (window.fitBoard) {
+      window.fitBoard();
+    }
+  };
+</script><script>
+  window.msDifficulties = {
+    beginner: { rows: 9, cols: 9, mines: 10 },
+    intermediate: { rows: 16, cols: 16, mines: 40 },
+    expert: { rows: 16, cols: 30, mines: 99 }
+  };
+
+  window.msConfig = {
+    difficulty: "beginner",
+    rows: 9,
+    cols: 9,
+    mines: 10
+  };
+
+  var board = null;
+  var gameOver = false;
+  var gameWon = false;
+  var firstClick = true;
+  var flagCount = 0;
+  var openCount = 0;
+  var seconds = 0;
+  var timerId = null;
+
+  window.newGame = function () {
+    clearInterval(window.timerId);
+    window.timerId = null;
+    window.gameOver = false;
+    window.gameWon = false;
+    window.firstClick = true;
+    window.flagCount = 0;
+    window.openCount = 0;
+    window.seconds = 0;
+    window.board = null;
+    var minesLabel = String(window.msConfig.mines);
+    while (minesLabel.length < 3) {
+      minesLabel = "0" + minesLabel;
+    }
+    document.getElementById("ms-mines").innerText = minesLabel;
+    document.getElementById("ms-time").innerText = "000";
+    document.getElementById("ms-reset").innerText = "🙂";
+    if (window.renderBoard) {
+      window.renderBoard();
+    }
+    if (window.fitBoard) {
+      window.fitBoard();
+    }
+  };
+</script><script>
+  window.buildBoard = function () {
+    var grid = [];
+    var row;
+    var y;
+    var x;
+    for (y = 0; y < window.msConfig.rows; y++) {
+      row = [];
+      for (x = 0; x < window.msConfig.cols; x++) {
+        row.push({ mine: false, open: false, flag: false, count: 0 });
+      }
+      grid.push(row);
+    }
+    window.board = grid;
+  };
+
+  window.renderBoard = function () {
+    var boardEl = document.getElementById("ms-board");
+    var cell;
+    var y;
+    var x;
+    window.buildBoard();
+    boardEl.style.gridTemplateColumns = "repeat(" + window.msConfig.cols + ", var(--cell))";
+    boardEl.innerHTML = "";
+    for (y = 0; y < window.msConfig.rows; y++) {
+      for (x = 0; x < window.msConfig.cols; x++) {
+        cell = document.createElement("button");
+        cell.className = "ms-cell";
+        cell.dataset.x = x;
+        cell.dataset.y = y;
+        cell.addEventListener("click", (function (cx, cy) {
+          return function () {
+            window.revealCell(cx, cy);
+          };
+        })(x, y));
+        cell.addEventListener("contextmenu", (function (cx, cy) {
+          return function (event) {
+            event.preventDefault();
+            window.toggleFlag(cx, cy);
+          };
+        })(x, y));
+        boardEl.appendChild(cell);
+      }
+    }
+  };
+</script><script>
+  window.placeMines = function (safeX, safeY) {
+    var total = window.msConfig.rows * window.msConfig.cols;
+    var safe = {};
+    var candidates = [];
+    var i;
+    var j;
+    var tmp;
+    var idx;
+    var dy;
+    var dx;
+    var ny;
+    var nx;
+    var y;
+    var x;
+    var cell;
+    for (dy = -1; dy <= 1; dy++) {
+      for (dx = -1; dx <= 1; dx++) {
+        ny = safeY + dy;
+        nx = safeX + dx;
+        if (ny >= 0 && ny < window.msConfig.rows && nx >= 0 && nx < window.msConfig.cols) {
+          safe[ny * window.msConfig.cols + nx] = true;
+        }
+      }
+    }
+    for (i = 0; i < total; i++) {
+      if (!safe[i]) {
+        candidates.push(i);
+      }
+    }
+    for (i = candidates.length - 1; i > 0; i--) {
+      j = Math.floor(Math.random() * (i + 1));
+      tmp = candidates[i];
+      candidates[i] = candidates[j];
+      candidates[j] = tmp;
+    }
+    for (i = 0; i < window.msConfig.mines && i < candidates.length; i++) {
+      idx = candidates[i];
+      window.board[Math.floor(idx / window.msConfig.cols)][idx % window.msConfig.cols].mine = true;
+    }
+    for (y = 0; y < window.msConfig.rows; y++) {
+      for (x = 0; x < window.msConfig.cols; x++) {
+        cell = window.board[y][x];
+        cell.count = 0;
+        for (dy = -1; dy <= 1; dy++) {
+          for (dx = -1; dx <= 1; dx++) {
+            ny = y + dy;
+            nx = x + dx;
+            if (ny >= 0 && ny < window.msConfig.rows && nx >= 0 && nx < window.msConfig.cols) {
+              if (window.board[ny][nx].mine) {
+                cell.count = cell.count + 1;
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+
+  window.revealCell = function (x, y) {
+    var cell;
+    var el;
+    var dy;
+    var dx;
+    var ny;
+    var nx;
+    var ncell;
+    if (window.gameOver || !window.board) {
+      return;
+    }
+    cell = window.board[y][x];
+    if (cell.open || cell.flag) {
+      return;
+    }
+    if (window.firstClick) {
+      window.placeMines(x, y);
+      window.firstClick = false;
+      window.timerId = window.setInterval(function () {
+        var label;
+        window.seconds = window.seconds + 1;
+        if (window.seconds > 999) {
+          window.seconds = 999;
+        }
+        label = String(window.seconds);
+        while (label.length < 3) {
+          label = "0" + label;
+        }
+        document.getElementById("ms-time").innerText = label;
+      }, 1000);
+    }
+    if (cell.mine) {
+      window.loseGame(x, y);
+      return;
+    }
+    cell.open = true;
+    window.openCount = window.openCount + 1;
+    el = document.getElementById("ms-board").children[y * window.msConfig.cols + x];
+    el.classList.add("open");
+    if (cell.count > 0) {
+      el.innerText = String(cell.count);
+      el.classList.add("n" + cell.count);
+    } else {
+      for (dy = -1; dy <= 1; dy++) {
+        for (dx = -1; dx <= 1; dx++) {
+          if (dy === 0 && dx === 0) {
+            continue;
+          }
+          ny = y + dy;
+          nx = x + dx;
+          if (ny < 0 || ny >= window.msConfig.rows || nx < 0 || nx >= window.msConfig.cols) {
+            continue;
+          }
+          ncell = window.board[ny][nx];
+          if (!ncell.open && !ncell.flag) {
+            window.revealCell(nx, ny);
+          }
+        }
+      }
+    }
+    window.checkWin();
+  };
+
+  window.toggleFlag = function (x, y) {
+    var cell;
+    var el;
+    var remaining;
+    var label;
+    if (window.gameOver || !window.board) {
+      return;
+    }
+    cell = window.board[y][x];
+    if (cell.open) {
+      return;
+    }
+    cell.flag = !cell.flag;
+    el = document.getElementById("ms-board").children[y * window.msConfig.cols + x];
+    if (cell.flag) {
+      el.innerText = "🚩";
+      window.flagCount = window.flagCount + 1;
+    } else {
+      el.innerText = "";
+      window.flagCount = window.flagCount - 1;
+    }
+    remaining = window.msConfig.mines - window.flagCount;
+    label = String(remaining);
+    while (label.length < 3) {
+      label = "0" + label;
+    }
+    document.getElementById("ms-mines").innerText = label;
+  };
+
+  window.checkWin = function () {
+    var total = window.msConfig.rows * window.msConfig.cols;
+    if (window.openCount === total - window.msConfig.mines) {
+      window.gameOver = true;
+      window.gameWon = true;
+      window.clearInterval(window.timerId);
+      window.timerId = null;
+      document.getElementById("ms-reset").innerText = "😎";
+    }
+  };
+
+  window.loseGame = function (x, y) {
+    var boardEl = document.getElementById("ms-board");
+    var yy;
+    var xx;
+    var cell;
+    var el;
+    window.gameOver = true;
+    window.clearInterval(window.timerId);
+    window.timerId = null;
+    document.getElementById("ms-reset").innerText = "😵";
+    for (yy = 0; yy < window.msConfig.rows; yy++) {
+      for (xx = 0; xx < window.msConfig.cols; xx++) {
+        cell = window.board[yy][xx];
+        if (cell.mine) {
+          el = boardEl.children[yy * window.msConfig.cols + xx];
+          el.classList.add("open");
+        }
+      }
+    }
+    boardEl.children[y * window.msConfig.cols + x].classList.add("mine");
+  };
+
+  document.getElementById("ms-reset").addEventListener("click", function () {
+    window.newGame();
+  });
+</script><script>
+  window.placeMines = function (safeX, safeY) {
+    var total = window.msConfig.rows * window.msConfig.cols;
+    var safe = {};
+    var candidates = [];
+    var i;
+    var j;
+    var tmp;
+    var idx;
+    var dy;
+    var dx;
+    var ny;
+    var nx;
+    var y;
+    var x;
+    var cell;
+    for (dy = -1; dy <= 1; dy++) {
+      for (dx = -1; dx <= 1; dx++) {
+        ny = safeY + dy;
+        nx = safeX + dx;
+        if (ny >= 0 && ny < window.msConfig.rows && nx >= 0 && nx < window.msConfig.cols) {
+          safe[ny * window.msConfig.cols + nx] = true;
+        }
+      }
+    }
+    for (i = 0; i < total; i++) {
+      if (!safe[i]) {
+        candidates.push(i);
+      }
+    }
+    for (i = candidates.length - 1; i > 0; i--) {
+      j = Math.floor(Math.random() * (i + 1));
+      tmp = candidates[i];
+      candidates[i] = candidates[j];
+      candidates[j] = tmp;
+    }
+    for (i = 0; i < window.msConfig.mines && i < candidates.length; i++) {
+      idx = candidates[i];
+      window.board[Math.floor(idx / window.msConfig.cols)][idx % window.msConfig.cols].mine = true;
+    }
+    for (y = 0; y < window.msConfig.rows; y++) {
+      for (x = 0; x < window.msConfig.cols; x++) {
+        cell = window.board[y][x];
+        cell.count = 0;
+        for (dy = -1; dy <= 1; dy++) {
+          for (dx = -1; dx <= 1; dx++) {
+            ny = y + dy;
+            nx = x + dx;
+            if (ny >= 0 && ny < window.msConfig.rows && nx >= 0 && nx < window.msConfig.cols) {
+              if (window.board[ny][nx].mine) {
+                cell.count = cell.count + 1;
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+
+  window.revealCell = function (x, y) {
+    var cell;
+    var el;
+    var dy;
+    var dx;
+    var ny;
+    var nx;
+    var ncell;
+    if (window.gameOver || !window.board) {
+      return;
+    }
+    cell = window.board[y][x];
+    if (cell.open || cell.flag) {
+      return;
+    }
+    if (window.firstClick) {
+      window.placeMines(x, y);
+      window.firstClick = false;
+      window.timerId = window.setInterval(function () {
+        var label;
+        window.seconds = window.seconds + 1;
+        if (window.seconds > 999) {
+          window.seconds = 999;
+        }
+        label = String(window.seconds);
+        while (label.length < 3) {
+          label = "0" + label;
+        }
+        document.getElementById("ms-time").innerText = label;
+      }, 1000);
+    }
+    if (cell.mine) {
+      window.loseGame(x, y);
+      return;
+    }
+    cell.open = true;
+    window.openCount = window.openCount + 1;
+    el = document.getElementById("ms-board").children[y * window.msConfig.cols + x];
+    el.classList.add("open");
+    if (cell.count > 0) {
+      el.innerText = String(cell.count);
+      el.classList.add("n" + cell.count);
+    } else {
+      for (dy = -1; dy <= 1; dy++) {
+        for (dx = -1; dx <= 1; dx++) {
+          if (dy === 0 && dx === 0) {
+            continue;
+          }
+          ny = y + dy;
+          nx = x + dx;
+          if (ny < 0 || ny >= window.msConfig.rows || nx < 0 || nx >= window.msConfig.cols) {
+            continue;
+          }
+          ncell = window.board[ny][nx];
+          if (!ncell.open && !ncell.flag) {
+            window.revealCell(nx, ny);
+          }
+        }
+      }
+    }
+    window.checkWin();
+  };
+
+  window.toggleFlag = function (x, y) {
+    var cell;
+    var el;
+    var remaining;
+    var label;
+    if (window.gameOver || !window.board) {
+      return;
+    }
+    cell = window.board[y][x];
+    if (cell.open) {
+      return;
+    }
+    cell.flag = !cell.flag;
+    el = document.getElementById("ms-board").children[y * window.msConfig.cols + x];
+    if (cell.flag) {
+      el.innerText = "🚩";
+      window.flagCount = window.flagCount + 1;
+    } else {
+      el.innerText = "";
+      window.flagCount = window.flagCount - 1;
+    }
+    remaining = window.msConfig.mines - window.flagCount;
+    label = String(remaining);
+    while (label.length < 3) {
+      label = "0" + label;
+    }
+    document.getElementById("ms-mines").innerText = label;
+  };
+
+  window.checkWin = function () {
+    var total = window.msConfig.rows * window.msConfig.cols;
+    if (window.openCount === total - window.msConfig.mines) {
+      window.gameOver = true;
+      window.gameWon = true;
+      window.clearInterval(window.timerId);
+      window.timerId = null;
+      document.getElementById("ms-reset").innerText = "😎";
+    }
+  };
+
+  window.loseGame = function (x, y) {
+    var boardEl = document.getElementById("ms-board");
+    var yy;
+    var xx;
+    var cell;
+    var el;
+    window.gameOver = true;
+    window.clearInterval(window.timerId);
+    window.timerId = null;
+    document.getElementById("ms-reset").innerText = "😵";
+    for (yy = 0; yy < window.msConfig.rows; yy++) {
+      for (xx = 0; xx < window.msConfig.cols; xx++) {
+        cell = window.board[yy][xx];
+        if (cell.mine) {
+          el = boardEl.children[yy * window.msConfig.cols + xx];
+          el.classList.add("open");
+        }
+      }
+    }
+    boardEl.children[y * window.msConfig.cols + x].classList.add("mine");
+  };
+
+  document.getElementById("ms-reset").addEventListener("click", function () {
+    window.newGame();
+  });
+
+  if (window.board === null || window.board === undefined) {
+    window.newGame();
+  }
+</script><script>
+  window.fitBoard = function () {
+    var cellSize;
+    var byWidth;
+    var byHeight;
+    byWidth = (window.innerWidth * 0.95) / window.msConfig.cols;
+    byHeight = (window.innerHeight * 0.80) / window.msConfig.rows;
+    cellSize = Math.floor(Math.min(byWidth, byHeight));
+    if (cellSize < 8) {
+      cellSize = 8;
+    }
+    document.documentElement.style.setProperty("--cell", cellSize + "px");
+  };
+
+  window.addEventListener("resize", function () {
+    window.fitBoard();
+  });
+
+  window.fitBoard();
+</script><script>
+  var diffButtons = document.getElementById("ms-difficulty").getElementsByTagName("button");
+  var i;
+  var wireButton = function (btn) {
+    btn.addEventListener("click", function () {
+      var key = btn.getAttribute("data-diff");
+      var preset = window.msDifficulties[key];
+      var j;
+      if (preset) {
+        window.msConfig.difficulty = key;
+        window.msConfig.rows = preset.rows;
+        window.msConfig.cols = preset.cols;
+        window.msConfig.mines = preset.mines;
+      }
+      for (j = 0; j < diffButtons.length; j++) {
+        diffButtons[j].classList.remove("active");
+      }
+      btn.classList.add("active");
+      window.newGame();
+    });
+  };
+  for (i = 0; i < diffButtons.length; i++) {
+    wireButton(diffButtons[i]);
+  }
+  window.newGame();
+</script>
