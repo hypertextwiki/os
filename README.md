@@ -25,7 +25,7 @@ This qr encodes an html file turning any browser since the 1990s into an offline
 ### Terminal Commands:
 ```bash
 # clone the project and dependencies
-git clone --recursive https://github.com/hypertextwiki/os
+git clone https://github.com/hypertextwiki/os
 
 # install dependencies
 npm run install

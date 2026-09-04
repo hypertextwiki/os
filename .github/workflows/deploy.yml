@@ -70,8 +70,6 @@ jobs:
         # Uses the official GitHub action for checking out repositories.
         # @v4 pins to version 4 for stability and reproducibility.
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       # =====================================================================
       # STEP 2: SETUP NODE.JS
