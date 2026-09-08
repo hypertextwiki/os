@@ -1,4 +1,4 @@
-#apps/chat?e&w&p=TASK: output HTML wireframe for a chat application
+#apps/agent?e&w&p=TASK: output HTML wireframe for a chat application
   - your output is injected into an existing main element with id A that already exists on the page, do NOT create a main element, do NOT create any element with id A
   - style the existing main id A with css: width 100vw, height 100vh, margin 0, padding 0, background %23ffffff, overflow hidden
   - basic css reset: box-sizing border-box for all elements, margin 0 on body
@@ -85,6 +85,90 @@
   - bind click on id submit-btn and Ctrl%2BEnter keydown on id user-input to: when the textarea value is non-empty after trim, call window.sendChat with the value and clear the textarea
   - bind click on id stop-btn to: set window.stopAgent = true, and when window.abortCtrl exists call window.abortCtrl.abort()
   - BE HYPER AWARE OF PROMISES: read() and fetch() return promises, every async step must be awaited or .then()ed, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag with the agent reasoning loop that upgrades the chat into an agent
+  - create global function window.parseAction(text): match regex /<<ACTION:\s*([^\>]\%2B)>>\n([\s\S]\%2A\%3F)(\%3F=<<|$)/, when matched return { name: match[1].trim(), input: match[2].trim() }, otherwise return null
+  - create global function window.parseAnswer(text): match regex /<<ANSWER>>\n([\s\S]\%2A\%3F)(\%3F=<<|$)/, when matched return match[1] EVEN WHEN IT IS EMPTY OR WHITESPACE, otherwise return null; an empty answer is still a valid termination and must never be treated as a failure
+  - create global async function window.buildAgentPrompt(): resolve the base system prompt (system-file input via await read, then localStorage key s, then a default), then append these sections in order:
+    - OUTPUT FORMAT rules, short and absolute: every single reply MUST end with exactly one of the two tags; to use a tool output <<ACTION: tool_name>> then the input on the next line; to finish output <<ANSWER>> then the final message on the next line; NEVER use XML or <tool_call> tags; NEVER narrate tool use in plain prose; the <<ACTION>> tag is the only way a tool runs; a reply with no tag is a format error
+    - a concrete EXAMPLE block showing one full well-formed finishing reply: <<ANSWER>> on its own line followed by an example sentence on the next line
+    - AVAILABLE TOOLS: when window.getActiveToolsString exists, await it and include the result, otherwise the line NO TOOLS AVAILABLE, ANSWER DIRECTLY
+    - CURRENT PLAN: window.agentPlan
+    - WORKING MEMORY: every key of window.agentScratchpad rendered as a MEMORY POINTER section, or the line [Empty] when there are none
+  - create global async function window.runAgent(userMessage):
+    - push { role: 'user', content: userMessage } onto window.chat and emit user with userMessage
+    - var errorCount = 0 and var formatFails = 0, then start a while(true) loop
+    - inside the loop, wrapped in try/catch:
+      - var systemPrompt = await window.buildAgentPrompt()
+      - when window.stopAgent is true, append the line USER OVERRIDE: Stop executing tools. Output <<ANSWER>>. to systemPrompt and reset window.stopAgent to false
+      - emit status thinking...
+      - var aiResponse = await window.fetchAI(systemPrompt)
+      - emit assistant with aiResponse, push { role: 'assistant', content: aiResponse } onto window.chat, emit status idle
+      - var action = window.parseAction(aiResponse)
+      - when action exists AND window.executeTool exists: set formatFails = 0, emit tool_call with action.name, var result = await window.executeTool(action.name, action.input), emit tool_result with result, push { role: 'user', content: 'OBSERVATION:\n' %2B result } onto window.chat, continue the loop
+      - when action exists but window.executeTool does NOT exist: push { role: 'user', content: 'SYSTEM WARNING: no tool executor installed. Answer directly with <<ANSWER>>.' } onto window.chat and continue the loop
+      - var answer = window.parseAnswer(aiResponse)
+      - when answer is NOT null (use an explicit null check, never a truthiness check): emit done with answer and break the loop
+      - fallback when neither matched: formatFails increments; when formatFails reaches 3, emit error with 'model failed the output format 3 times', emit done with aiResponse as a graceful fallback, and break the loop; otherwise push { role: 'user', content: 'SYSTEM WARNING: format error. Your previous reply had no tag. Reply again and your reply MUST end with <<ACTION: name>> or <<ANSWER>>.' } onto window.chat and continue the loop
+    - on catch: errorCount increments, emit error with err.message, break the loop when errorCount reaches 7
+  - rewire the UI from plain chat to agent mode, and this is the critical part: for EACH of the THREE elements id submit-btn, id stop-btn AND id user-input, replace the element with a fresh clone of itself via element.replaceWith(element.cloneNode(true)) so ALL listeners from the previous script are dropped; the textarea is the easy one to forget and it carries a stale Ctrl%2BEnter listener bound to window.sendChat, if it is not cloned the old plain-chat path keeps firing
+  - after cloning, re-fetch all three elements by id and bind: click on submit-btn and Ctrl%2BEnter keydown on user-input call window.runAgent with the trimmed textarea value when non-empty and then clear the textarea; click on stop-btn sets window.stopAgent = true and aborts window.abortCtrl when it exists
+  - keep window.sendChat intact so plain chat stays available as a fallback
+  - BE HYPER AWARE OF PROMISES: read(), fetch() and executeTool() return promises, every async step must be awaited, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag with the dynamic tool loader and executor
+  - tools are plain files stored under the folder named in the id tools-folder input; each tool file starts with a /* description */ comment followed by javascript that receives its arguments as the variable INPUT and returns a string result
+  - helper toolPrefix(): read the id tools-folder input value, trim it, when it does not end with a slash append one, return it
+  - create global async function window.getActiveToolsString():
+    - var prefix = toolPrefix(), var lines = []
+    - var matchedKeys = await keys(IDBKeyRange.bound(prefix, prefix %2B '\uffff'))
+    - loop through matchedKeys: var c = await read(matchedKeys[i]); var desc = 'No description'; when c exists and includes '/*' set desc = c.split('*/')[0].split('/*')[1].trim(); lines.push(matchedKeys[i].slice(prefix.length) %2B ' - ' %2B desc)
+    - return lines joined with newlines, or the string 'No tools found.' when empty
+  - create global async function window.executeTool(toolName, toolInput):
+    - inside a try/catch block:
+      - var prefix = toolPrefix(), var code = await read(toolName)
+      - when code is missing and toolName does not already start with prefix, code = await read(prefix %2B toolName)
+      - when code is still missing throw new Error('Tool not found: ' %2B toolName)
+      - strip a leading /* ... */ comment from code before evaluating
+      - evaluate EXACTLY with this syntax: return await new Function('INPUT', 'return (async () => {' %2B code %2B '})()')(toolInput)
+    - on catch: console.error('Tool Execution Failed:', err) and return the string 'Tool Execution Error: ' %2B err.message so the loop keeps going
+  - tool code runs in kernel scope, so tools can call read, write, keys, and hydrate directly
+  - BE HYPER AWARE OF PROMISES: read() and keys() return promises, every async step must be awaited, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that adds progressive-disclosure skills to the system prompt
+  - CRITICAL CAPTURE RULE: top-level var declarations are globals shared by every script, so capture the old function under a UNIQUE name: var prevBuildSkills = window.buildAgentPrompt; inside the new wrapper call ONLY prevBuildSkills, never window.buildAgentPrompt and never a generic name like prevBuild, another wrapper script will overwrite a generic name and cause infinite recursion
+  - IDEMPOTENCY RULE: before wrapping, when window.buildAgentPrompt._hasSkills is already true, do nothing and end the script; after wrapping, set window.buildAgentPrompt._hasSkills = true, so a duplicated script can never stack two skills wrappers
+  - skills are plain text or markdown files stored under the folder named in the id skills-folder input; each skill file starts with a /* one line description */ comment, and the rest of the file is the full skill body that the model loads on demand
+  - helper skillPrefix(): read the id skills-folder input value, trim it, when it does not end with a slash append one, return it
+  - create global async function window.getSkillsIndex():
+    - var prefix = skillPrefix(), var lines = []
+    - var matchedKeys = await keys(IDBKeyRange.bound(prefix, prefix %2B '\uffff'))
+    - loop through matchedKeys: var c = await read(matchedKeys[i]); var desc = 'No description'; when c exists and includes '/*' set desc = c.split('*/')[0].split('/*')[1].trim(); lines.push(matchedKeys[i] %2B ' - ' %2B desc)
+    - return lines joined with newlines, or an empty string when there are no skills
+    - note: unlike tools, skill lines keep their FULL path including the prefix, because skills get loaded through the read tool which takes a raw path
+  - wrap the existing window.buildAgentPrompt WITHOUT rewriting it: window.buildAgentPrompt = async function() { var p = await prevBuildSkills(); var idx = await window.getSkillsIndex(); when idx is non-empty, p %2B= '\nSKILLS (load before use):\n' %2B idx %2B '\nTo apply a skill, first load its full body with the read tool, then follow its instructions.\n'; return p; }
+  - add a code comment: skills are the cheap context tier, only the one-line descriptions cost tokens every turn, bodies are loaded on demand through the read tool
+  - BE HYPER AWARE OF PROMISES: read() and keys() return promises, every async step must be awaited, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that adds identity files, eager context files, and the wikilink rule to the system prompt
+  - CRITICAL CAPTURE RULE: top-level var declarations are globals shared by every script, so capture the old function under a UNIQUE name: var prevBuildIdentity = window.buildAgentPrompt; inside the new wrapper call ONLY prevBuildIdentity, never window.buildAgentPrompt and never a generic name like prevBuild, another wrapper script will overwrite a generic name and cause infinite recursion
+  - IDEMPOTENCY RULE: before wrapping, when window.buildAgentPrompt._hasIdentity is already true, do nothing and end the script; after wrapping, set window.buildAgentPrompt._hasIdentity = true, so a duplicated script can never stack two identity wrappers
+  - wrap the existing window.buildAgentPrompt WITHOUT rewriting it: window.buildAgentPrompt = async function() { ... }
+  - inside the wrapper:
+    - identity tier, loaded first: var soul = await read('soul'), var user = await read('user'); build an identity string from whichever exist, wrapping each as <soul>...</soul> and <user>...</user> joined with a newline
+    - var p = await prevBuildIdentity(); when the identity string is non-empty, p = identity %2B '\n\n' %2B p so identity always leads the system prompt
+    - wikilink rule: append the line '\nWhen a message contains [[links]], treat each link as a file name in the dataverse and load it with the read tool before answering.'
+    - eager context tier, appended last: read the id context-files input value, split it on commas, trim each entry, drop empties; for each entry var c = await read(entry) and when c exists append '\n<context file="' %2B entry %2B '">\n' %2B c %2B '\n</context>' to p
+    - return p
+  - files that do not exist must be skipped silently and must never throw
+  - add a code comment: soul and user are the identity tier and should stay short, context-files is the eager pay-now tier for large documents, [[links]] are the pay-when-needed tier handled by the read tool
+  - BE HYPER AWARE OF PROMISES: read() returns a promise, every async step must be awaited, never let [object Promise] leak into a string
   - use var for all variable declarations
   - ONLY generate this SCRIPT tag, do not return the previous code
 &w
