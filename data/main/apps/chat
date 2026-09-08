@@ -1,0 +1,363 @@
+
+
+<style>
+#A { width: 100vw; height: 100vh; margin: 0; padding: 0; background: #ffffff; overflow: hidden; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+#chat-app { display: flex; flex-direction: column; width: 100vw; height: 100vh; font-family: monospace; }
+#chat-header { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: #f5f5f5; border-bottom: 1px solid #cccccc; }
+#chat-config-row1, #chat-config-row2 { display: flex; gap: 8px; }
+.field { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+label { font-size: 0.9em; }
+input { padding: 4px; border: 1px solid #cccccc; border-radius: 4px; }
+#chat-messages { flex: 1; overflow-y: auto; padding: 12px; background: #ffffff; }
+.msg { white-space: pre-wrap; word-break: break-word; margin-bottom: 12px; padding: 8px; border: 1px solid #dddddd; }
+.msg.user { background: #eef4ff; }
+.msg.assistant { background: #f6fff0; }
+.msg.tool { background: #fff8e6; font-size: 0.85em; }
+.msg.error { background: #ffecec; color: #a00000; }
+.msg.marker { text-align: center; color: #777777; border: none; font-size: 0.8em; }
+#status-bar { padding: 4px 8px; font-size: 0.8em; color: #777777; border-top: 1px solid #eeeeee; }
+#chat-footer { display: flex; gap: 8px; padding: 8px; background: #f5f5f5; border-top: 1px solid #cccccc; }
+#user-input { flex: 1; resize: vertical; min-height: 48px; padding: 8px; border: 1px solid #cccccc; border-radius: 4px; }
+button { padding: 8px 12px; border: 1px solid #cccccc; border-radius: 4px; background: #f0f0f0; cursor: pointer; }
+</style>
+<div id="chat-app">
+  <div id="chat-header">
+    <div id="chat-config-row1">
+      <div class="field">
+        <label for="model-name">model</label>
+        <input id="model-name" type="text">
+      </div>
+      <div class="field">
+        <label for="model-host">host</label>
+        <input id="model-host" type="text">
+      </div>
+      <div class="field">
+        <label for="api-key">api key</label>
+        <input id="api-key" type="password">
+      </div>
+    </div>
+    <div id="chat-config-row2">
+      <div class="field">
+        <label for="compact-threshold">compact tokens</label>
+        <input id="compact-threshold" type="text">
+      </div>
+      <div class="field">
+        <label for="system-file">system file</label>
+        <input id="system-file" type="text">
+      </div>
+      <div class="field">
+        <label for="context-files">context files</label>
+        <input id="context-files" type="text">
+      </div>
+      <div class="field">
+        <label for="tools-folder">tools folder</label>
+        <input id="tools-folder" type="text">
+      </div>
+      <div class="field">
+        <label for="skills-folder">skills folder</label>
+        <input id="skills-folder" type="text">
+      </div>
+    </div>
+  </div>
+  <div id="chat-messages">
+  </div>
+  <div id="status-bar">idle</div>
+  <div id="chat-footer">
+    <textarea id="user-input" placeholder="Type your message..."></textarea>
+    <button id="submit-btn">Send</button>
+    <button id="stop-btn">Stop</button>
+  </div>
+</div>
+
+<script>
+var loadConfig = function() {
+  var model = document.getElementById('model-name');
+  var host = document.getElementById('model-host');
+  var key = document.getElementById('api-key');
+  var compact = document.getElementById('compact-threshold');
+  var sys = document.getElementById('system-file');
+  var ctx = document.getElementById('context-files');
+  var tools = document.getElementById('tools-folder');
+  var skills = document.getElementById('skills-folder');
+
+  var m = localStorage.getItem('m');
+  model.value = (m !== null) ? m : '';
+  var h = localStorage.getItem('h');
+  host.value = (h !== null) ? h : '';
+  var k = localStorage.getItem('k');
+  key.value = (k !== null) ? k : '';
+  var ct = localStorage.getItem('ct');
+  compact.value = (ct !== null) ? ct : '500000';
+  var sf = localStorage.getItem('sf');
+  sys.value = (sf !== null) ? sf : '';
+  var cf = localStorage.getItem('cf');
+  ctx.value = (cf !== null) ? cf : '';
+  var tf = localStorage.getItem('tf');
+  tools.value = (tf !== null) ? tf : 'tools/';
+  var kf = localStorage.getItem('kf');
+  skills.value = (kf !== null) ? kf : 'skills/';
+
+  var save = function(el, storageKey) {
+    el.addEventListener('change', function() {
+      localStorage.setItem(storageKey, el.value);
+    });
+  };
+  save(model, 'm');
+  save(host, 'h');
+  save(key, 'k');
+  save(compact, 'ct');
+  save(sys, 'sf');
+  save(ctx, 'cf');
+  save(tools, 'tf');
+  save(skills, 'kf');
+};
+
+loadConfig();
+
+window.chat = [];
+window.agentPlan = "Pending initialization.";
+window.agentScratchpad = {};
+window.stopAgent = false;
+window.chatSummary = null;
+window.abortCtrl = null;
+</script>
+
+<script>
+// all later scripts communicate ONLY through window.chatEvents and never touch the DOM directly
+var ChatEvents = function() {
+  var handlers = {};
+  var eventNames = ['user', 'delta', 'assistant', 'tool_call', 'tool_result', 'compact', 'plan', 'status', 'error', 'done'];
+
+  var on = function(name, fn) {
+    if (!handlers[name]) {
+      handlers[name] = [];
+    }
+    handlers[name].push(fn);
+  };
+
+  var emit = function(name, payload) {
+    if (handlers[name]) {
+      for (var i = 0; i < handlers[name].length; i++) {
+        try {
+          handlers[name][i](payload);
+        } catch (e) {
+          console.error('Error in handler for event ' + name, e);
+        }
+      }
+    }
+  };
+
+  // Register built-in debug subscribers
+  for (var i = 0; i < eventNames.length; i++) {
+    var eventName = eventNames[i];
+    (function(name) {
+      on(name, function(payload) {
+        console.log('chatEvents.' + name, payload);
+      });
+    })(eventName);
+  }
+
+  return {
+    on: on,
+    emit: emit
+  };
+};
+
+window.chatEvents = ChatEvents();
+</script>
+
+<script>
+var nearBottom = function() {
+  var el = document.getElementById('chat-messages');
+  return el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+};
+
+var appendMsg = function(cssClass, text) {
+  var wasNearBottom = nearBottom();
+  var div = document.createElement('div');
+  div.className = 'msg ' + cssClass;
+  div.appendChild(document.createTextNode(text));
+  document.getElementById('chat-messages').appendChild(div);
+  if (wasNearBottom) {
+    var container = document.getElementById('chat-messages');
+    container.scrollTop = container.scrollHeight;
+  }
+  return div;
+};
+
+var streamDiv = null;
+
+window.chatEvents.on('user', function(payload) {
+  appendMsg('user', payload);
+});
+
+window.chatEvents.on('delta', function(payload) {
+  if (streamDiv === null) {
+    streamDiv = appendMsg('assistant', '');
+  }
+  streamDiv.appendChild(document.createTextNode(payload));
+  if (nearBottom()) {
+    var container = document.getElementById('chat-messages');
+    container.scrollTop = container.scrollHeight;
+  }
+});
+
+window.chatEvents.on('assistant', function(payload) {
+  if (streamDiv === null) {
+    appendMsg('assistant', payload);
+  }
+  streamDiv = null;
+});
+
+window.chatEvents.on('tool_call', function(payload) {
+  appendMsg('tool', 'tool call: ' + payload);
+});
+
+window.chatEvents.on('tool_result', function(payload) {
+  appendMsg('tool', 'result: ' + payload);
+});
+
+window.chatEvents.on('compact', function(payload) {
+  appendMsg('marker', '--- context compacted: ' + payload + ' ---');
+});
+
+window.chatEvents.on('plan', function(payload) {
+  appendMsg('marker', 'plan: ' + payload);
+});
+
+window.chatEvents.on('error', function(payload) {
+  appendMsg('error', String(payload));
+});
+
+window.chatEvents.on('status', function(payload) {
+  document.getElementById('status-bar').innerText = String(payload);
+});
+</script>
+
+<script>
+var fetchAI = async function(systemPrompt) {
+  var modelEl = document.getElementById('model-name');
+  var hostEl = document.getElementById('model-host');
+  var keyEl = document.getElementById('api-key');
+  var model = modelEl.value;
+  var host = hostEl.value;
+  var apikey = keyEl.value;
+  localStorage.setItem('m', model);
+  localStorage.setItem('h', host);
+  localStorage.setItem('k', apikey);
+  var messages = [{ role: 'system', content: systemPrompt }].concat(window.chat);
+  window.abortCtrl = new AbortController();
+  var headers = { 'Content-Type': 'application/json' };
+  if (apikey) {
+    headers.Authorization = 'Bearer ' + apikey;
+  }
+  var body = JSON.stringify({ model: model, messages: messages, stream: true });
+  var accumulated = '';
+  try {
+    var response = await fetch(host, {
+      method: 'POST',
+      headers: headers,
+      body: body,
+      signal: window.abortCtrl.signal
+    });
+    if (!response.ok) {
+      window.chatEvents.emit('error', 'HTTP ' + response.status);
+      return '';
+    }
+    var reader = response.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+    while (true) {
+      var done = false;
+      var value = await reader.read();
+      done = value.done;
+      if (value.value) {
+        buffer += decoder.decode(value.value, { stream: true });
+        var lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i];
+          if (line.startsWith('data: ')) {
+            var data = line.slice(6);
+            if (data === '[DONE]') {
+              done = true;
+              break;
+            }
+            try {
+              var json = JSON.parse(data);
+              var content = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
+              if (content) {
+                accumulated += content;
+                window.chatEvents.emit('delta', content);
+              }
+            } catch (e) {
+              // ignore parse errors
+            }
+          }
+        }
+      }
+      if (done) break;
+    }
+    return accumulated;
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      window.chatEvents.emit('status', 'stopped');
+    } else {
+      window.chatEvents.emit('error', err.message);
+    }
+    return accumulated;
+  }
+};
+window.fetchAI = fetchAI;
+
+var sendChat = async function(text) {
+  window.chat.push({ role: 'user', content: text });
+  window.chatEvents.emit('user', text);
+  var systemFileEl = document.getElementById('system-file');
+  var systemPrompt;
+  if (systemFileEl.value) {
+    var sf = await read(systemFileEl.value);
+    systemPrompt = sf || localStorage.getItem('s') || 'You are a helpful assistant.';
+  } else {
+    systemPrompt = localStorage.getItem('s') || 'You are a helpful assistant.';
+  }
+  window.chatEvents.emit('status', 'thinking...');
+  var reply = await window.fetchAI(systemPrompt);
+  window.chat.push({ role: 'assistant', content: reply });
+  window.chatEvents.emit('assistant', reply);
+  window.chatEvents.emit('status', 'idle');
+  window.chatEvents.emit('done');
+};
+window.sendChat = sendChat;
+
+var submitBtn = document.getElementById('submit-btn');
+var userInput = document.getElementById('user-input');
+var stopBtn = document.getElementById('stop-btn');
+
+submitBtn.addEventListener('click', function() {
+  var val = userInput.value.trim();
+  if (val) {
+    window.sendChat(val);
+    userInput.value = '';
+  }
+});
+
+userInput.addEventListener('keydown', function(e) {
+  if (e.ctrlKey && e.key === 'Enter') {
+    var val = userInput.value.trim();
+    if (val) {
+      window.sendChat(val);
+      userInput.value = '';
+    }
+  }
+});
+
+stopBtn.addEventListener('click', function() {
+  window.stopAgent = true;
+  if (window.abortCtrl) {
+    window.abortCtrl.abort();
+  }
+});
+</script>

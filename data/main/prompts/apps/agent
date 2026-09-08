@@ -1,0 +1,90 @@
+#apps/chat?e&w&p=TASK: output HTML wireframe for a chat application
+  - your output is injected into an existing main element with id A that already exists on the page, do NOT create a main element, do NOT create any element with id A
+  - style the existing main id A with css: width 100vw, height 100vh, margin 0, padding 0, background %23ffffff, overflow hidden
+  - basic css reset: box-sizing border-box for all elements, margin 0 on body
+  - root container: div id chat-app, display flex, flex-direction column, width 100vw, height 100vh, font-family monospace
+  - header: div id chat-header, vertical flex layout, gap 6px, padding 8px, background %23f5f5f5, border-bottom 1px solid %23cccccc
+    - row 1: div id chat-config-row1, horizontal flex, gap 8px, three labeled fields each flex 1: text input id model-name with label model, text input id model-host with label host, password input id api-key with label api key
+    - row 2: div id chat-config-row2, horizontal flex, gap 8px, five labeled fields each flex 1: text input id compact-threshold with label compact tokens, text input id system-file with label system file, text input id context-files with label context files, text input id tools-folder with label tools folder, text input id skills-folder with label skills folder
+  - messages area: div id chat-messages, flex 1, overflow-y auto, padding 12px, background %23ffffff
+  - define message css classes now, they get rendered by javascript later:
+    - .msg base class: white-space pre-wrap, word-break break-word, margin-bottom 12px, padding 8px, border 1px solid %23dddddd
+    - .msg.user: background %23eef4ff
+    - .msg.assistant: background %23f6fff0
+    - .msg.tool: background %23fff8e6, font-size 0.85em
+    - .msg.error: background %23ffecec, color %23a00000
+    - .msg.marker: text-align center, color %23777777, border none, font-size 0.8em
+  - status bar: div id status-bar, padding 4px 8px, font-size 0.8em, color %23777777, border-top 1px solid %23eeeeee, initial text idle
+  - footer: div id chat-footer, horizontal flex, gap 8px, padding 8px, background %23f5f5f5, border-top 1px solid %23cccccc
+    - textarea id user-input, flex 1, resize vertical, min-height 48px
+    - button id submit-btn with label Send
+    - button id stop-btn with label Stop
+  - NO JAVASCRIPT
+  - DONT INCLUDE html/head/body tags just the wireframe
+&w&a=1&p=TASK: output a SCRIPT tag that populates the config inputs and creates the global chat state
+  - for each config input, read its localStorage key and set the input value, using the default when the key is absent:
+    - id model-name from key m
+    - id model-host from key h
+    - id api-key from key k
+    - id compact-threshold from key ct, default 500000
+    - id system-file from key sf, default empty
+    - id context-files from key cf, default empty
+    - id tools-folder from key tf, default tools/
+    - id skills-folder from key kf, default skills/
+  - add a change listener on each of these inputs that writes its value back to its own localStorage key
+  - create global array: window.chat = []
+  - create global string: window.agentPlan = "Pending initialization."
+  - create global object: window.agentScratchpad = {}
+  - create global boolean: window.stopAgent = false
+  - create global: window.chatSummary = null (compaction checkpoint, used by a later script)
+  - create global: window.abortCtrl = null (in-flight request controller, used by a later script)
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that creates the global event bus for the chat
+  - create global object window.chatEvents with an internal handlers object and exactly two functions:
+    - on(name, fn): push fn onto handlers[name], creating the array if it is missing
+    - emit(name, payload): call every fn registered under name with payload, each call wrapped in its own try/catch so a broken subscriber can never break the emitter
+  - the fixed event vocabulary is: user, delta, assistant, tool_call, tool_result, compact, plan, status, error, done
+  - register one built-in subscriber per event name that console.logs the event name and payload, for debugging
+  - add a code comment: all later scripts communicate ONLY through window.chatEvents and never touch the DOM directly
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that renders chat events into the messages area
+  - this script only subscribes to window.chatEvents, no other script calls it directly
+  - helper nearBottom(): true when id chat-messages scrollTop %2B clientHeight is within 40px of scrollHeight
+  - helper appendMsg(cssClass, text): remember nearBottom() before appending, create a div with classes msg and cssClass, append a text node holding the text, append the div to id chat-messages, scroll chat-messages to its bottom only when it was at the bottom, return the div
+  - keep a module-level var streamDiv = null for the open assistant message
+  - subscribe user: appendMsg('user', payload)
+  - subscribe delta: if streamDiv is null set streamDiv = appendMsg('assistant', ''), then append the payload as a text node to streamDiv, scroll only when nearBottom()
+  - subscribe assistant: if streamDiv is still null (no streamed chunks arrived) appendMsg('assistant', payload), then set streamDiv = null
+  - subscribe tool_call: appendMsg('tool', 'tool call: ' %2B payload)
+  - subscribe tool_result: appendMsg('tool', 'result: ' %2B payload)
+  - subscribe compact: appendMsg('marker', '--- context compacted: ' %2B payload %2B ' ---')
+  - subscribe plan: appendMsg('marker', 'plan: ' %2B payload)
+  - subscribe error: appendMsg('error', String(payload))
+  - subscribe status: set innerText of id status-bar to String(payload)
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&c=src&p=TASK: output a SCRIPT tag with the streaming LLM fetch helper and the basic chat send path
+  - the attached CONTEXT is the kernel source, use its gen function as the reference for the request shape
+  - create global async function window.fetchAI(systemPrompt):
+    - read model from id model-name, host from id model-host, apikey from id api-key, and save the three values to localStorage keys m, h, k
+    - build the messages array: first item { role: 'system', content: systemPrompt }, concatenated with window.chat
+    - window.abortCtrl = new AbortController()
+    - fetch host with method POST, header Content-Type application/json, header Authorization Bearer plus the apikey only when apikey is non-empty, signal window.abortCtrl.signal, body JSON.stringify({ model: model, messages: messages, stream: true })
+    - strictly follow the standard openai streaming schema, do NOT include any google specific edge cases
+    - if the response is not ok: emit error with 'HTTP ' %2B response.status and return ''
+    - otherwise read response.body with getReader and TextDecoder: buffer decoded text, split into lines, every line starting with 'data: ' gets JSON.parsed unless it is '[DONE]', take choices[0].delta.content, append it to a full text accumulator and emit delta with the chunk
+    - wrap the whole function body in try/catch: when the error is an abort emit status stopped, otherwise emit error with err.message, and always return whatever text accumulated
+  - create global async function window.sendChat(text):
+    - push { role: 'user', content: text } onto window.chat and emit user with text
+    - build the system prompt: when id system-file is non-empty do var sf = await read(that file name) and use sf when truthy, otherwise localStorage.getItem('s'), otherwise 'You are a helpful assistant.'
+    - emit status thinking...
+    - var reply = await window.fetchAI(systemPrompt)
+    - push { role: 'assistant', content: reply } onto window.chat, emit assistant with reply, emit status idle, emit done
+  - bind click on id submit-btn and Ctrl%2BEnter keydown on id user-input to: when the textarea value is non-empty after trim, call window.sendChat with the value and clear the textarea
+  - bind click on id stop-btn to: set window.stopAgent = true, and when window.abortCtrl exists call window.abortCtrl.abort()
+  - BE HYPER AWARE OF PROMISES: read() and fetch() return promises, every async step must be awaited or .then()ed, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w
