@@ -200,18 +200,18 @@
   - BE HYPER AWARE OF PROMISES: read() and fetch() return promises, every async step must be awaited, never let [object Promise] leak into a string
   - use var for all variable declarations
   - ONLY generate this SCRIPT tag, do not return the previous code
-&w&a=1&p=TASK: Add per-agent memory and plan maintenance to the existing chat app
-  - SESSION ID: on load set window.agentId to a fresh random id generated with crypto.getRandomValues, never persist it, each window or iframe instance is its own agent, use var for all variable declarations
-  - HARDCODED BASE: the agent memory base path is memory%23agents/ followed by window.agentId, the part before the %23 is the namespace, the part after is the key prefix inside that namespace
-  - NAMESPACE SPLIT: whenever this script calls the kernel read or write with a base path, split the full path at the first %23 into namespace and key, then call read(key, namespace) or write(value, key, namespace), never pass a string containing %23 as the key, BE HYPER AWARE OF PROMISES
-  - HARDCODED SUBPATHS: the plan file key is the base key prefix plus /plan/current, private scratch notes live under the base key prefix plus /private/, durable memory lives under the base key prefix plus /memory/
-  - Wrap window.buildAgentPrompt using a uniquely named capture variable prevBuildPlan and an idempotency flag window._hasPlan, NEVER call window.buildAgentPrompt inside its own wrapper
-  - In the wrapper read the plan file with await read using the split form, if missing use this text instead: No plan file yet. For any task needing more than 2 steps, create your plan file with the write tool as a checklist
-  - The wrapper appends its new content at the very END of the assembled prompt, never in the middle, because the end of the prompt gets the most attention
-  - First appended section: CURRENT PLAN with the plan file contents, then one line: before starting any multi-step task read the skill file skills/planning and follow it
-  - Second appended section: MEMORY, teaching: your memory lives in the memory namespace under agents/ plus your agent id, save durable facts as files under your memory subpath, save private scratch notes under your private subpath, recall anything with the read tool, list everything you know with list-files on these prefixes, always use the full namespace paths like memory%23agents/ when calling tools
-  - Wrap window.fetchAI using a uniquely named capture variable prevFetchBeat and an idempotency flag window._hasPlanBeat, NEVER call window.fetchAI inside its own wrapper
-  - The wrapper counts new tool result messages in window.chat since the last reminder, and fires when either 3 tool results have passed OR the newest tool result starts with Error:
-  - When it fires it appends one reminder message as the FINAL message of the outgoing request ONLY, never into window.chat, saying: Reminder: your plan file is at your plan path in the memory namespace. If your progress changed, rewrite it with the write tool before continuing. If you hit an error, update the plan with what you learned
+&w&a=1&p=TASK: output a SCRIPT tag that gives each agent window its own plan file in the memory dataverse and keeps the plan alive during long tasks
+  - AGENT ID: on script load, create window.agentId as a hex string — call crypto.getRandomValues on a new Uint8Array(8) and convert each byte to two hex digits — never write it to localStorage or sessionStorage, every window must get its own fresh id
+  - PLAN PATH: this agent's plan file is one single path — the string memory%23agents/ followed by window.agentId followed by /plan — overwritten by each new task, no subfolders
+  - NAMESPACE SPLIT: the kernel globals read(k, d) and write(v, k, d) take the key and the namespace as SEPARATE arguments and never parse %23 themselves — to touch the plan file, split the path at the first %23, use everything after it as the key, and pass the string memory as the namespace argument
+  - PLAN SECTION: wrap window.buildAgentPrompt with unique capture names and an idempotency flag, never self-call the wrapped name — after calling the original, append at the very END of the prompt exactly these four lines: a line CURRENT PLAN, a line path: followed by the resolved literal plan path (interpolate the real string, never describe it as a formula), a line contents: followed by the current file text (await the read, use the word empty when the file does not exist), a line how to plan: read the file skills%23planning with the read tool
+  - the CURRENT PLAN section must be the last thing in the prompt, after every other section
+  - HEARTBEAT: wrap window.fetchAI with unique capture names and an idempotency flag
+  - keep one module-level number beatSeen — how many tool-result messages were in window.chat at the last check — tool-result messages are the user-role messages the agent loop pushes after running a tool, read the loop code in context and match its exact format, never invent a prefix
+  - on every call: count those messages now, subtract beatSeen, then update beatSeen — fire the reminder when the difference is 3 or more, or when the newest one is an error in the loop's own error format — but NEVER fire when the difference is zero, a reminder with nothing new behind it is noise the model learns to ignore
+  - firing means: push { role: 'user', content: 'Reminder: check your plan file (path in the system prompt), update it to match reality, then continue' } onto window.chat, await the original fetchAI, then remove that message again in a finally block — it exists only for the duration of this one request, emit no events for it so the UI never renders it
+  - keep the reminder short, single-purpose, and role user — it must sit at maximum recency, immediately before the model's next decision
+  - VERIFY: re-read your code and confirm the reminder message exists only inside the outgoing request, the plan path is interpolated as a resolved literal string, the id comes from crypto.getRandomValues, and every wrapper follows the house rules
+  - use var for all variable declarations
   - ONLY generate this SCRIPT tag, do not return the previous code
 &w

@@ -46,7 +46,7 @@ Clone → `wrangler login` → `npm run deploy:cloudflare`. Done — the baselin
 
 - `QRX_PUBLIC_NAMESPACES` / `QRX_PRIVATE_NAMESPACES` — plain vars in `wrangler.jsonc`, committed, safe to edit per fork.
 - `CACHE_TTL_SECONDS` — plain var in `wrangler.jsonc`, default `86400` (one day). How long the edge remembers an anonymous read. Lower = fresher for strangers under active editing; higher = cheaper under load. Writes purge what they can, so staleness is the worst case, not the common one.
-- `QRX_SYNC_KEY` — a Worker secret (`wrangler secret put`), never committed. Same role as in `.env`: authorizes `/write`, `/data/index.private.json`, and `/stream`, and bypasses the cache on reads. Cloudflare secrets are write-only — keep your local copy in `.env`.
+- `QRX_SYNC_KEY` — a Worker secret (`wrangler secret put`), never committed. Same role as in `.env`: authorizes `/write`, `/data/index.private.json`, and `/stream`, and bypasses the cache on reads. Cloudflare secrets are write-only — keep your local copy in `.env`. **The worker fails closed:** with no secret configured, `/write` rejects everyone — a keyless deployment is read-only, never world-writable. (Local dev: put `QRX_SYNC_KEY` in `.env`/`.dev.vars` if you want writes under `wrangler dev`.)
 - Custom domains and wildcard subdomains (`*.yourdomain.com`) attach via Routes; each hostname is a separate browser origin, so each subdomain gets its own isolated IndexedDB automatically.
 
 ### What's different at runtime
@@ -62,6 +62,13 @@ Clone → `wrangler login` → `npm run deploy:cloudflare`. Done — the baselin
 
 `npm run dev:cloudflare` builds, applies migrations to a local SQLite, and serves via `wrangler dev` — the baseline comes from the baked assets, so local dev boots fully populated with an empty database. Writes during dev go to that *local* database (in `.wrangler/state`, gitignored), separate from your deployed one. Note: `caches.default` behaves differently under `wrangler dev` than in production — don't judge cache behavior from local dev alone.
 
-### Deploy to Cloudflare button
+### Inspecting and troubleshooting
 
-A one-click Deploy button (forks the repo into the user's GitHub and auto-provisions the database) is possible — but Workers Builds' auto-provisioning is currently non-idempotent and can fail on *re*deploys (error 10014). The CLI path above is unaffected and is the documented route until that bug settles.
+- **See your data directly** — don't trust the dashboard. The D1 dashboard metrics ("Total queries / Rows read / Rows written") are analytics and can lag badly; even `wrangler d1 list`'s `num_tables` is stale control-plane metadata. Ground truth is a query:
+  ```bash
+  npx wrangler d1 execute qrx --remote --command "SELECT ns, k, v FROM files"
+  ```
+- **`{"error":"D1_ERROR: no such table: files"}`** — the migration was never applied to the remote database. Fix: `npx wrangler d1 migrations apply qrx --remote` (it's part of `deploy:cloudflare`, but it's safe to run standalone anytime — already-applied migrations are skipped).
+- **Writes return 401 for you** — check that the secret exists under exactly this name: `npx wrangler secret list` (shows names only; values are write-only). Set or reset with `npx wrangler secret put QRX_SYNC_KEY`. Secrets persist across `wrangler deploy` — you only set them once.
+- **Writes return 401 for everyone, and you never set a key** — that's the intended fail-closed behavior; your deployment is read-only until you set one.
+- **A write succeeded but anonymous reads are stale** — the edge cache. Keyed reads confirm the data is there; anonymous readers in other edge locations see it after `CACHE_TTL_SECONDS` at worst.
