@@ -1,33 +1,29 @@
 
 
-/* list-files - list the names of files that exist so you can discover and choose files. INPUT: empty for all files in the current namespace, a prefix like apps/ to filter, oz# for all files in namespace oz, oz#apps/ for a prefix in namespace oz */
+/* list-files - list the names of files that exist so you can discover and choose files. INPUT: empty for all files in the current namespace, a prefix like apps/ to filter, docs# for all files in namespace docs, docs#apps/ for a prefix in namespace docs */
 try {
   let input = INPUT.trim();
-  let ns, prefix;
-  if (input.includes('#')) {
-    [ns, prefix] = input.split('#', 1);
-  } else {
-    ns = undefined;
+  let hashIndex = input.indexOf('#');
+  let namespace, prefix;
+  if (hashIndex === -1) {
+    namespace = undefined;
     prefix = input;
-  }
-  let dbHandle;
-  if (ns !== undefined) {
-    dbHandle = await getDB(ns);
   } else {
-    dbHandle = await getDB();
+    namespace = input.slice(0, hashIndex);
+    prefix = input.slice(hashIndex + 1);
   }
-  let query;
-  if (prefix === '') {
-    query = undefined;
+  let targetDb = namespace ? await getDB(namespace) : db;
+  let matchedKeys;
+  if (!prefix) {
+    matchedKeys = await keys(undefined, targetDb);
   } else {
-    query = IDBKeyRange.bound(prefix, prefix + '\uffff');
+    matchedKeys = await keys(IDBKeyRange.bound(prefix, prefix + '\uffff'), targetDb);
   }
-  let keysList = await keys(query, dbHandle);
-  if (!keysList || keysList.length === 0) {
+  if (!matchedKeys || matchedKeys.length === 0) {
     return "No files found: " + input;
   }
-  keysList.sort();
-  return keysList.join('\n');
+  matchedKeys.sort();
+  return matchedKeys.join('\n');
 } catch (e) {
   return "Error: " + e.message;
 }

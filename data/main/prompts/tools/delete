@@ -1,7 +1,7 @@
-#tools/delete?e&w&c=src&p=TASK: Write the complete tool file for the QRx agent tool named delete
+#tools/delete?e&w&c=src&p=TASK: Write the complete tool file for the agent tool named delete
   - PURPOSE: This file is a tool the chat agent calls to permanently delete a file from any namespace
   - FORMAT: Raw JavaScript only, no script tags, no HTML, no markdown fences, no explanation
-  - Line 1 MUST be one single block comment in this exact style: /* delete - permanently delete a file. INPUT: a bare file name like old.txt for the current namespace, or namespace%23filename like oz%23old.txt for another namespace */
+  - Line 1 MUST be one single block comment in this exact style: /* delete - permanently delete a file. INPUT: a bare file name like old.txt for the current namespace, or namespace%23filename like docs%23old.txt for another namespace */
   - The code you write IS the body of an async function whose only argument INPUT is a raw string, write top level statements ONLY, do NOT define a function, do NOT wrap the code in anything
   - The kernel has NO delete global, look at how the kernel implements write, tx, queryDB and the FILES constant, then perform the delete by awaiting queryDB with tx in readwrite mode calling .delete(filename) on the object store
   - NEVER redeclare or shadow kernel globals

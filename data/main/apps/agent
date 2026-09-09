@@ -8,7 +8,6 @@ body { margin: 0; }
 #chat-header { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: #f5f5f5; border-bottom: 1px solid #cccccc; }
 #chat-config-row1, #chat-config-row2 { display: flex; gap: 8px; }
 #chat-config-row1 > label, #chat-config-row2 > label { flex: 1; }
-input { width: 100%; }
 #chat-messages { flex: 1; overflow-y: auto; padding: 12px; background: #ffffff; }
 .msg { white-space: pre-wrap; word-break: break-word; margin-bottom: 12px; padding: 8px; border: 1px solid #dddddd; }
 .msg.user { background: #eef4ff; }
@@ -23,19 +22,37 @@ input { width: 100%; }
 <div id="chat-app">
   <div id="chat-header">
     <div id="chat-config-row1">
-      <label>Model <input id="model-name" type="text"></label>
-      <label>Host <input id="model-host" type="text"></label>
-      <label>API Key <input id="api-key" type="password"></label>
+      <label>model
+        <input type="text" id="model-name">
+      </label>
+      <label>host
+        <input type="text" id="model-host">
+      </label>
+      <label>api key
+        <input type="password" id="api-key">
+      </label>
     </div>
     <div id="chat-config-row2">
-      <label>Compact Tokens <input id="compact-threshold" type="text"></label>
-      <label>System File <input id="system-file" type="text"></label>
-      <label>Context Files <input id="context-files" type="text"></label>
-      <label>Tools Folder <input id="tools-folder" type="text"></label>
-      <label>Skills Folder <input id="skills-folder" type="text"></label>
+      <label>compact tokens
+        <input type="text" id="compact-threshold">
+      </label>
+      <label>system file
+        <input type="text" id="system-file">
+      </label>
+      <label>context files
+        <input type="text" id="context-files">
+      </label>
+      <label>tools folder
+        <input type="text" id="tools-folder">
+      </label>
+      <label>skills folder
+        <input type="text" id="skills-folder">
+      </label>
     </div>
   </div>
-  <div id="chat-messages"></div>
+  <div id="chat-messages">
+    <!-- messages -->
+  </div>
   <div id="status-bar">idle</div>
   <div id="chat-footer">
     <textarea id="user-input"></textarea>
@@ -54,29 +71,26 @@ var contextFilesInput = document.getElementById('context-files');
 var toolsFolderInput = document.getElementById('tools-folder');
 var skillsFolderInput = document.getElementById('skills-folder');
 
-modelNameInput.value = localStorage.getItem('m') !== null ? localStorage.getItem('m') : '';
-modelNameInput.addEventListener('change', function() { localStorage.setItem('m', modelNameInput.value); });
+function applyConfig(id, key, defaultVal) {
+  var el = document.getElementById(id);
+  var stored = localStorage.getItem(key);
+  if (stored === null) {
+    stored = defaultVal;
+  }
+  el.value = stored;
+  el.addEventListener('change', function() {
+    localStorage.setItem(key, el.value);
+  });
+}
 
-modelHostInput.value = localStorage.getItem('h') !== null ? localStorage.getItem('h') : '';
-modelHostInput.addEventListener('change', function() { localStorage.setItem('h', modelHostInput.value); });
-
-apiKeyInput.value = localStorage.getItem('k') !== null ? localStorage.getItem('k') : '';
-apiKeyInput.addEventListener('change', function() { localStorage.setItem('k', apiKeyInput.value); });
-
-compactThresholdInput.value = localStorage.getItem('ct') !== null ? localStorage.getItem('ct') : '500000';
-compactThresholdInput.addEventListener('change', function() { localStorage.setItem('ct', compactThresholdInput.value); });
-
-systemFileInput.value = localStorage.getItem('sf') !== null ? localStorage.getItem('sf') : '';
-systemFileInput.addEventListener('change', function() { localStorage.setItem('sf', systemFileInput.value); });
-
-contextFilesInput.value = localStorage.getItem('cf') !== null ? localStorage.getItem('cf') : '';
-contextFilesInput.addEventListener('change', function() { localStorage.setItem('cf', contextFilesInput.value); });
-
-toolsFolderInput.value = localStorage.getItem('tf') !== null ? localStorage.getItem('tf') : 'tools/';
-toolsFolderInput.addEventListener('change', function() { localStorage.setItem('tf', toolsFolderInput.value); });
-
-skillsFolderInput.value = localStorage.getItem('kf') !== null ? localStorage.getItem('kf') : 'skills/';
-skillsFolderInput.addEventListener('change', function() { localStorage.setItem('kf', skillsFolderInput.value); });
+applyConfig('model-name', 'm', '');
+applyConfig('model-host', 'h', '');
+applyConfig('api-key', 'k', '');
+applyConfig('compact-threshold', 'ct', '500000');
+applyConfig('system-file', 'sf', '');
+applyConfig('context-files', 'cf', '');
+applyConfig('tools-folder', 'tf', 'tools/');
+applyConfig('skills-folder', 'kf', 'skills/');
 
 window.chat = [];
 window.agentPlan = "Pending initialization.";
@@ -88,42 +102,47 @@ window.abortCtrl = null;
 
 <script>
 // all later scripts communicate ONLY through window.chatEvents and never touch the DOM directly
-var handlers = {};
-window.chatEvents = {
-  on: function(name, fn) {
+window.chatEvents = (function() {
+  var handlers = {};
+  var on = function(name, fn) {
     if (!handlers[name]) handlers[name] = [];
     handlers[name].push(fn);
-  },
-  emit: function(name, payload) {
+  };
+  var emit = function(name, payload) {
     var list = handlers[name];
     if (list) {
       for (var i = 0; i < list.length; i++) {
-        try { list[i](payload); } catch (e) { console.error(e); }
+        try {
+          list[i](payload);
+        } catch (e) {
+          console.error('Error in handler for', name, e);
+        }
       }
     }
+  };
+  var eventNames = ['user','delta','assistant','tool_call','tool_result','compact','plan','status','error','done'];
+  for (var i = 0; i < eventNames.length; i++) {
+    (function(evt) {
+      on(evt, function(payload) {
+        console.log(evt, payload);
+      });
+    })(eventNames[i]);
   }
-};
-window.chatEvents.on('user', function(p){ console.log('user', p); });
-window.chatEvents.on('delta', function(p){ console.log('delta', p); });
-window.chatEvents.on('assistant', function(p){ console.log('assistant', p); });
-window.chatEvents.on('tool_call', function(p){ console.log('tool_call', p); });
-window.chatEvents.on('tool_result', function(p){ console.log('tool_result', p); });
-window.chatEvents.on('compact', function(p){ console.log('compact', p); });
-window.chatEvents.on('plan', function(p){ console.log('plan', p); });
-window.chatEvents.on('status', function(p){ console.log('status', p); });
-window.chatEvents.on('error', function(p){ console.log('error', p); });
-window.chatEvents.on('done', function(p){ console.log('done', p); });
+  return { on: on, emit: emit };
+})();
 </script>
 
 <script>
+var streamDiv = null;
+
 function nearBottom() {
   var el = document.getElementById('chat-messages');
-  return el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  return el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
 }
 
 function appendMsg(cssClass, text) {
-  var wasNearBottom = nearBottom();
   var el = document.getElementById('chat-messages');
+  var wasNearBottom = nearBottom();
   var div = document.createElement('div');
   div.className = 'msg ' + cssClass;
   div.appendChild(document.createTextNode(text));
@@ -134,51 +153,50 @@ function appendMsg(cssClass, text) {
   return div;
 }
 
-var streamDiv = null;
-
-window.chatEvents.on('user', function(p) {
-  appendMsg('user', p);
+window.chatEvents.on('user', function(payload) {
+  appendMsg('user', payload);
 });
 
-window.chatEvents.on('delta', function(p) {
+window.chatEvents.on('delta', function(payload) {
   if (!streamDiv) {
     streamDiv = appendMsg('assistant', '');
   }
-  streamDiv.appendChild(document.createTextNode(p));
+  streamDiv.appendChild(document.createTextNode(payload));
   if (nearBottom()) {
-    document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
+    var el = document.getElementById('chat-messages');
+    el.scrollTop = el.scrollHeight;
   }
 });
 
-window.chatEvents.on('assistant', function(p) {
+window.chatEvents.on('assistant', function(payload) {
   if (!streamDiv) {
-    appendMsg('assistant', p);
+    appendMsg('assistant', payload);
   }
   streamDiv = null;
 });
 
-window.chatEvents.on('tool_call', function(p) {
-  appendMsg('tool', 'tool call: ' + p);
+window.chatEvents.on('tool_call', function(payload) {
+  appendMsg('tool', 'tool call: ' + payload);
 });
 
-window.chatEvents.on('tool_result', function(p) {
-  appendMsg('tool', 'result: ' + p);
+window.chatEvents.on('tool_result', function(payload) {
+  appendMsg('tool', 'result: ' + payload);
 });
 
-window.chatEvents.on('compact', function(p) {
-  appendMsg('marker', '--- context compacted: ' + p + ' ---');
+window.chatEvents.on('compact', function(payload) {
+  appendMsg('marker', '--- context compacted: ' + payload + ' ---');
 });
 
-window.chatEvents.on('plan', function(p) {
-  appendMsg('marker', 'plan: ' + p);
+window.chatEvents.on('plan', function(payload) {
+  appendMsg('marker', 'plan: ' + payload);
 });
 
-window.chatEvents.on('error', function(p) {
-  appendMsg('error', String(p));
+window.chatEvents.on('error', function(payload) {
+  appendMsg('error', String(payload));
 });
 
-window.chatEvents.on('status', function(p) {
-  document.getElementById('status-bar').innerText = String(p);
+window.chatEvents.on('status', function(payload) {
+  document.getElementById('status-bar').innerText = String(payload);
 });
 </script>
 
@@ -190,19 +208,19 @@ window.fetchAI = async function(systemPrompt) {
   localStorage.setItem('m', model);
   localStorage.setItem('h', host);
   localStorage.setItem('k', apikey);
-
   var messages = [{ role: 'system', content: systemPrompt }].concat(window.chat);
   window.abortCtrl = new AbortController();
   var headers = { 'Content-Type': 'application/json' };
   if (apikey) {
     headers.Authorization = 'Bearer ' + apikey;
   }
+  var body = JSON.stringify({ model: model, messages: messages, stream: true });
   var fullText = '';
   try {
     var response = await fetch(host, {
       method: 'POST',
       headers: headers,
-      body: JSON.stringify({ model: model, messages: messages, stream: true }),
+      body: body,
       signal: window.abortCtrl.signal
     });
     if (!response.ok) {
@@ -213,16 +231,21 @@ window.fetchAI = async function(systemPrompt) {
     var decoder = new TextDecoder();
     var buffer = '';
     while (true) {
-      var result = await reader.read();
-      if (result.done) break;
-      buffer += decoder.decode(result.value, { stream: true });
+      var done = false;
+      var value = await reader.read();
+      done = value.done;
+      if (done) break;
+      buffer += decoder.decode(value.value, { stream: true });
       var lines = buffer.split('\n');
       buffer = lines.pop();
       for (var i = 0; i < lines.length; i++) {
         var line = lines[i].trim();
         if (line.startsWith('data: ')) {
           var data = line.slice(6);
-          if (data === '[DONE]') continue;
+          if (data === '[DONE]') {
+            done = true;
+            break;
+          }
           try {
             var json = JSON.parse(data);
             var content = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
@@ -235,6 +258,7 @@ window.fetchAI = async function(systemPrompt) {
           }
         }
       }
+      if (done) break;
     }
     return fullText;
   } catch (err) {
@@ -253,9 +277,13 @@ window.sendChat = async function(text) {
   var systemFile = document.getElementById('system-file').value;
   var systemPrompt;
   if (systemFile) {
-    systemPrompt = await read(systemFile);
-  }
-  if (!systemPrompt) {
+    var sf = await read(systemFile);
+    if (sf) {
+      systemPrompt = sf;
+    } else {
+      systemPrompt = localStorage.getItem('s') || 'You are a helpful assistant.';
+    }
+  } else {
     systemPrompt = localStorage.getItem('s') || 'You are a helpful assistant.';
   }
   window.chatEvents.emit('status', 'thinking...');
@@ -295,39 +323,101 @@ document.getElementById('stop-btn').addEventListener('click', function() {
 </script>
 
 <script>
+function clean(raw) {
+  var text = raw.trim();
+  var tags = ['</ACTION>', '</ACTION>>', '</ANSWER>', '</ANSWER>>', '</tool_input>', '</invoke>', '</parameter>', '</tool_call>', '</function_calls>'];
+  var changed = true;
+  while (changed) {
+    changed = false;
+    for (var i = 0; i < tags.length; i++) {
+      if (text.endsWith(tags[i])) {
+        text = text.slice(0, text.length - tags[i].length).trim();
+        changed = true;
+        break;
+      }
+    }
+  }
+  return text;
+}
+
 window.parseAction = function(text) {
-  var m = /<<ACTION:\s*([^>]+)>>\n([\s\S]*?)(?=<<|$)/.exec(text);
-  if (!m) return null;
-  return { name: m[1].trim(), input: m[2].trim() };
+  var match = /<<ACTION:\s*([^>]+)>>\n([\s\S]*?)(?=<<|$)/.exec(text);
+  if (match) {
+    return { name: match[1].trim(), input: clean(match[2]) };
+  }
+  var invokeMatch = /<invoke name="([^"]+)">/.exec(text);
+  if (!invokeMatch) {
+    return null;
+  }
+  var rest = text.slice(invokeMatch.index + invokeMatch[0].length);
+  var nextInvoke = /<invoke name="/.exec(rest);
+  if (nextInvoke) {
+    rest = rest.slice(0, nextInvoke.index);
+  }
+  var paramRegex = /<parameter name="[^"]+">([\s\S]*?)<\/parameter>/g;
+  var param;
+  var params = [];
+  while ((param = paramRegex.exec(rest)) !== null) {
+    params.push(param[1]);
+  }
+  var input;
+  if (params.length === 0) {
+    input = '';
+  } else if (params.length === 1) {
+    input = params[0];
+  } else {
+    input = params.join('\n');
+  }
+  return { name: invokeMatch[1].trim(), input: clean(input) };
 };
 
 window.parseAnswer = function(text) {
-  var m = /<<ANSWER>>\n([\s\S]*?)(?=<<|$)/.exec(text);
-  if (!m) return null;
-  return m[1];
-};
-
-window.buildAgentPrompt = async function() {
-  var sf = document.getElementById('system-file').value;
-  var base = (sf ? await read(sf) : null) || localStorage.getItem('s') || 'You are a helpful assistant.';
-  var tools = window.getActiveToolsString ? await window.getActiveToolsString() : 'NO TOOLS AVAILABLE, ANSWER DIRECTLY';
-  var mem = '';
-  var keys = Object.keys(window.agentScratchpad);
-  if (keys.length) {
-    for (var i = 0; i < keys.length; i++) {
-      mem += 'MEMORY POINTER ' + (i+1) + ' [' + keys[i] + ']: ' + window.agentScratchpad[keys[i]] + '\n';
-    }
-  } else {
-    mem = '[Empty]';
+  var match = /<<ANSWER>>\n([\s\S]*?)(?=<<|$)/.exec(text);
+  if (match) {
+    return clean(match[1]);
   }
-  return base + '\n\n' +
-    'OUTPUT FORMAT: Every reply MUST end with exactly one tag. To use a tool output <<ACTION: tool_name>> then the input on the next line. To finish output <<ANSWER>> then the final message on the next line. NEVER use XML or <tool_call> tags. NEVER narrate tool use in plain prose. The <<ACTION>> tag is the only way a tool runs. A reply with no tag is a format error.\n\n' +
-    'EXAMPLE:\n<<ANSWER>>\nThe task is complete.\n\n' +
-    'AVAILABLE TOOLS:\n' + tools + '\n\n' +
-    'CURRENT PLAN:\n' + window.agentPlan + '\n\n' +
-    'WORKING MEMORY:\n' + mem;
+  return null;
 };
+</script>
 
+<script>
+window.buildAgentPrompt = async function() {
+  var systemFile = document.getElementById('system-file').value;
+  var base;
+  if (systemFile) {
+    base = await read(systemFile);
+  }
+  if (!base) {
+    base = localStorage.getItem('s');
+  }
+  if (!base) {
+    base = 'You are a helpful assistant.';
+  }
+  var prompt = base;
+  prompt += '\n\nOUTPUT FORMAT rules, short and absolute: every single reply MUST end with exactly one of the two tags; to use a tool output <<ACTION: tool_name>> then the input on the next line; to finish output <<ANSWER>> then the final message on the next line; NEVER use XML or <tool_call> tags; NEVER narrate tool use in plain prose; the <<ACTION>> tag is the only way a tool runs; a reply with no tag is a format error';
+  prompt += '\n\nEXAMPLE block showing one full well-formed finishing reply:\n<<ANSWER>>\nThis is an example sentence.';
+  prompt += '\n\nAVAILABLE TOOLS: ';
+  if (window.getActiveToolsString) {
+    prompt += await window.getActiveToolsString();
+  } else {
+    prompt += 'NO TOOLS AVAILABLE, ANSWER DIRECTLY';
+  }
+  prompt += '\n\nCURRENT PLAN: ' + window.agentPlan;
+  prompt += '\n\nWORKING MEMORY: ';
+  var keys = Object.keys(window.agentScratchpad);
+  if (keys.length === 0) {
+    prompt += '[Empty]';
+  } else {
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      prompt += '\nMEMORY POINTER: ' + k + ' = ' + window.agentScratchpad[k];
+    }
+  }
+  return prompt;
+};
+</script>
+
+<script>
 window.runAgent = async function(userMessage) {
   window.chat.push({ role: 'user', content: userMessage });
   window.chatEvents.emit('user', userMessage);
@@ -369,11 +459,13 @@ window.runAgent = async function(userMessage) {
         window.chatEvents.emit('done', aiResponse);
         break;
       }
-      window.chat.push({ role: 'user', content: 'SYSTEM WARNING: format error. Your previous reply had no tag. Reply again and your reply MUST end with <<ACTION: name>> or <<ANSWER>>.' });
+      window.chat.push({ role: 'user', content: 'SYSTEM WARNING: format error. Your last reply had no usable tag. Reply again and end it one of two ways: <<ACTION: name>> then the tool input on the next line, or <<ANSWER>> then your message on the next line. Put nothing after the input or message.' });
     } catch (err) {
       errorCount++;
       window.chatEvents.emit('error', err.message);
-      if (errorCount >= 7) break;
+      if (errorCount >= 7) {
+        break;
+      }
     }
   }
 };
@@ -381,6 +473,7 @@ window.runAgent = async function(userMessage) {
 var submitBtn = document.getElementById('submit-btn');
 var stopBtn = document.getElementById('stop-btn');
 var userInput = document.getElementById('user-input');
+
 submitBtn.replaceWith(submitBtn.cloneNode(true));
 stopBtn.replaceWith(stopBtn.cloneNode(true));
 userInput.replaceWith(userInput.cloneNode(true));
@@ -418,7 +511,7 @@ stopBtn.addEventListener('click', function() {
 <script>
 var toolPrefix = function() {
   var v = document.getElementById('tools-folder').value.trim();
-  if (v && v[v.length - 1] !== '/') v += '/';
+  if (v && v.charAt(v.length - 1) !== '/') v += '/';
   return v;
 };
 
@@ -427,27 +520,32 @@ window.getActiveToolsString = async function() {
   var lines = [];
   var matchedKeys = await keys(IDBKeyRange.bound(prefix, prefix + '\uffff'));
   for (var i = 0; i < matchedKeys.length; i++) {
-    var c = await read(matchedKeys[i]);
+    var k = matchedKeys[i];
+    var c = await read(k);
     var desc = 'No description';
-    if (c && c.includes('/*')) {
+    if (c && c.indexOf('/*') !== -1) {
       desc = c.split('*/')[0].split('/*')[1].trim();
     }
-    lines.push(matchedKeys[i].slice(prefix.length) + ' - ' + desc);
+    lines.push(k.slice(prefix.length) + ' - ' + desc);
   }
-  return lines.length ? lines.join('\n') : 'No tools found.';
+  if (lines.length === 0) return 'No tools found.';
+  return lines.join('\n');
 };
 
 window.executeTool = async function(toolName, toolInput) {
   try {
     var prefix = toolPrefix();
     var code = await read(toolName);
-    if (!code && !toolName.startsWith(prefix)) {
+    if (!code && toolName.slice(0, prefix.length) !== prefix) {
       code = await read(prefix + toolName);
     }
-    if (!code) {
-      throw new Error('Tool not found: ' + toolName);
+    if (!code) throw new Error('Tool not found: ' + toolName);
+    if (code.startsWith('/*')) {
+      var endIdx = code.indexOf('*/');
+      if (endIdx !== -1) {
+        code = code.slice(endIdx + 2).trim();
+      }
     }
-    code = code.replace(/^\/\*[\s\S]*?\*\//, '').trim();
     return await new Function('INPUT', 'return (async () => {' + code + '})()')(toolInput);
   } catch (err) {
     console.error('Tool Execution Failed:', err);
@@ -458,17 +556,15 @@ window.executeTool = async function(toolName, toolInput) {
 
 <script>
 // skills are the cheap context tier, only the one-line descriptions cost tokens every turn, bodies are loaded on demand through the read tool
-if (window.buildAgentPrompt && window.buildAgentPrompt._hasSkills) {
-  // already wrapped, do nothing
-} else {
+if (window.buildAgentPrompt && !window.buildAgentPrompt._hasSkills) {
   var prevBuildSkills = window.buildAgentPrompt;
-  
+
   var skillPrefix = function() {
     var v = document.getElementById('skills-folder').value.trim();
-    if (v && v[v.length - 1] !== '/') v += '/';
+    if (v && v.charAt(v.length - 1) !== '/') v += '/';
     return v;
   };
-  
+
   window.getSkillsIndex = async function() {
     var prefix = skillPrefix();
     var lines = [];
@@ -476,14 +572,14 @@ if (window.buildAgentPrompt && window.buildAgentPrompt._hasSkills) {
     for (var i = 0; i < matchedKeys.length; i++) {
       var c = await read(matchedKeys[i]);
       var desc = 'No description';
-      if (c && c.includes('/*')) {
+      if (c && c.indexOf('/*') !== -1) {
         desc = c.split('*/')[0].split('/*')[1].trim();
       }
       lines.push(matchedKeys[i] + ' - ' + desc);
     }
-    return lines.length ? lines.join('\n') : '';
+    return lines.length > 0 ? lines.join('\n') : '';
   };
-  
+
   window.buildAgentPrompt = async function() {
     var p = await prevBuildSkills();
     var idx = await window.getSkillsIndex();
@@ -497,154 +593,274 @@ if (window.buildAgentPrompt && window.buildAgentPrompt._hasSkills) {
 </script>
 
 <script>
-// identity tier (soul/user) loaded first, eager context-files loaded last, [[links]] are pay-when-needed
+// identity tier: soul and user are short identity files, context-files is eager pay-now tier for large documents, [[links]] are pay-when-needed tier handled by the read tool
 if (window.buildAgentPrompt && !window.buildAgentPrompt._hasIdentity) {
   var prevBuildIdentity = window.buildAgentPrompt;
   window.buildAgentPrompt = async function() {
-    // identity tier
-    var identity = '';
     var soul = await read('soul');
-    if (soul) identity += '<soul>' + soul + '</soul>';
     var user = await read('user');
-    if (user) identity += '<user>' + user + '</user>';
-    
+    var identity = '';
+    if (soul) identity += '<soul>\n' + soul + '\n</soul>';
+    if (user) {
+      if (identity) identity += '\n';
+      identity += '<user>\n' + user + '\n</user>';
+    }
     var p = await prevBuildIdentity();
     if (identity) p = identity + '\n\n' + p;
-    
-    // wikilink rule
     p += '\nWhen a message contains [[links]], treat each link as a file name in the dataverse and load it with the read tool before answering.';
-    
-    // eager context tier
-    var cf = document.getElementById('context-files').value;
-    if (cf) {
-      var entries = cf.split(',');
-      for (var i = 0; i < entries.length; i++) {
-        var entry = entries[i].trim();
-        if (!entry) continue;
-        var c = await read(entry);
-        if (c) p += '\n<context file="' + entry + '">\n' + c + '\n</context>';
+    var ctxInput = document.getElementById('context-files');
+    if (ctxInput) {
+      var ctxVal = ctxInput.value.trim();
+      if (ctxVal) {
+        var entries = ctxVal.split(',');
+        for (var i = 0; i < entries.length; i++) {
+          var entry = entries[i].trim();
+          if (!entry) continue;
+          var c = await read(entry);
+          if (c) p += '\n<context file="' + entry + '">\n' + c + '\n</context>';
+        }
       }
     }
-    
     return p;
   };
   window.buildAgentPrompt._hasIdentity = true;
 }
 </script>
 
-
 <script>
-// Plan file management and heartbeat for agent
-(function() {
-  // Generate unique agent ID from crypto.getRandomValues
-  var bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  window.agentId = '';
-  for (var i = 0; i < bytes.length; i++) {
-    window.agentId += bytes[i].toString(16).padStart(2, '0');
-  }
+// chunked context compaction - CRITICAL: prevFetchCompact is unique to avoid infinite recursion
+var prevFetchCompact = window.fetchAI;
 
-  // Plan path: memory#agents/<agentId>/plan
-  var planKey = 'agents/' + window.agentId + '/plan';
-  var planPath = 'memory#' + planKey;
-
-  // Helper to read plan file (namespace split: key and namespace are separate args)
-  window.readPlan = async function() {
-    return await read(planKey, 'memory');
+if (window.fetchAI && !window.fetchAI._hasCompaction) {
+  window.estimateTokens = function(text) {
+    return Math.ceil(text.length / 4 * 1.2);
   };
 
-  // Helper to write plan file
-  window.writePlan = async function(content) {
-    await write(content, planKey, 'memory');
+  window.summarizeText = async function(text, instructions) {
+    var model = document.getElementById('model-name').value;
+    var host = document.getElementById('model-host').value;
+    var apikey = document.getElementById('api-key').value;
+    var headers = { 'Content-Type': 'application/json' };
+    if (apikey) {
+      headers.Authorization = 'Bearer ' + apikey;
+    }
+    var body = JSON.stringify({
+      model: model,
+      messages: [
+        { role: 'system', content: instructions },
+        { role: 'user', content: text }
+      ],
+      stream: false
+    });
+    var resp = await fetch(host, {
+      method: 'POST',
+      headers: headers,
+      body: body
+    });
+    var json = await resp.json();
+    return json.choices[0].message.content;
   };
 
-  // Wrap buildAgentPrompt to append CURRENT PLAN section at the very end
-  var prevBuildAgentPrompt = window.buildAgentPrompt;
-  window.buildAgentPrompt = async function() {
-    var prompt = await prevBuildAgentPrompt();
-
-    // Read current plan contents (use 'empty' when file does not exist)
-    var planContents = 'empty';
+  window.compactChat = async function() {
     try {
-      var plan = await window.readPlan();
-      if (plan) planContents = plan;
-    } catch (e) {
-      // file doesn't exist, keep 'empty'
+      var capacity = parseInt(document.getElementById('compact-threshold').value) || 500000;
+      var maxChunk = Math.floor(capacity * 0.4);
+      var tailTokens = Math.floor(capacity * 0.1);
+
+      // walk backwards to collect tail
+      var tail = [];
+      var tailCount = 0;
+      var i = window.chat.length - 1;
+      while (i >= 0 && tailCount < 2) {
+        tail.unshift(window.chat[i]);
+        tailCount++;
+        i--;
+      }
+      while (i >= 0) {
+        var msg = window.chat[i];
+        var msgTokens = window.estimateTokens(msg.content);
+        if (tail.reduce(function(s, m) { return s + window.estimateTokens(m.content); }, 0) + msgTokens > tailTokens) {
+          break;
+        }
+        tail.unshift(msg);
+        i--;
+      }
+
+      var regionEnd = window.chat.length - tail.length;
+      if (regionEnd === 0) {
+        return;
+      }
+
+      var start = window.chatSummary ? window.chatSummary.upTo : 0;
+      var transcript = '';
+      if (window.chatSummary) {
+        transcript += 'PREVIOUS SUMMARY:\n' + window.chatSummary.text + '\n\n';
+      }
+      for (var j = start; j < regionEnd; j++) {
+        transcript += window.chat[j].role + ': ' + window.chat[j].content + '\n';
+      }
+
+      var summary;
+      if (window.estimateTokens(transcript) <= maxChunk) {
+        summary = await window.summarizeText(transcript, 'You are a compaction engine. Summarize this conversation transcript for an agent that will continue it. Preserve with maximum recall: the users goals, every decision made, every fact or file name mentioned, tool results that matter, and all open questions. Discard filler. Output only the summary.');
+      } else {
+        // greedy chunking
+        var chunks = [];
+        var current = '';
+        var lines = transcript.split('\n');
+        for (var k = 0; k < lines.length; k++) {
+          var line = lines[k] + '\n';
+          if (window.estimateTokens(current + line) > maxChunk && current) {
+            chunks.push(current);
+            current = line;
+          } else {
+            current += line;
+          }
+        }
+        if (current) chunks.push(current);
+
+        var partials = [];
+        for (var c = 0; c < chunks.length; c++) {
+          var p = await window.summarizeText(chunks[c], 'You are a compaction engine. Summarize this conversation transcript for an agent that will continue it. Preserve with maximum recall: the users goals, every decision made, every fact or file name mentioned, tool results that matter, and all open questions. Discard filler. Output only the summary.');
+          partials.push(p);
+        }
+
+        // reduce
+        var joined = partials.join('\n');
+        while (window.estimateTokens(joined) > maxChunk) {
+          var subChunks = [];
+          var cur = '';
+          var jLines = joined.split('\n');
+          for (var l = 0; l < jLines.length; l++) {
+            var lLine = jLines[l] + '\n';
+            if (window.estimateTokens(cur + lLine) > maxChunk && cur) {
+              subChunks.push(cur);
+              cur = lLine;
+            } else {
+              cur += lLine;
+            }
+          }
+          if (cur) subChunks.push(cur);
+          var newPartials = [];
+          for (var s = 0; s < subChunks.length; s++) {
+            var sp = await window.summarizeText(subChunks[s], 'You are a compaction engine. Summarize this conversation transcript for an agent that will continue it. Preserve with maximum recall: the users goals, every decision made, every fact or file name mentioned, tool results that matter, and all open questions. Discard filler. Output only the summary.');
+            newPartials.push(sp);
+          }
+          joined = newPartials.join('\n');
+        }
+        summary = await window.summarizeText(joined, 'Merge these partial summaries into one cohesive summary. Preserve decisions, TODOs, open questions, file names, and constraints. Output only the summary.');
+      }
+
+      window.chatSummary = { text: summary, upTo: regionEnd };
+      window.chatEvents.emit('compact', start + '-' + window.chatSummary.upTo + ' messages summarized into ' + window.estimateTokens(summary) + ' tokens');
+    } catch (err) {
+      window.chatEvents.emit('error', err.message);
     }
-
-    // Read planning skill from skills namespace
-    var planningSkill = '';
-    try {
-      planningSkill = await read('planning', 'skills');
-    } catch (e) {
-      planningSkill = 'No planning skill found.';
-    }
-
-    // Append CURRENT PLAN section as the last thing in the prompt
-    prompt += '\nCURRENT PLAN\n';
-    prompt += 'path: ' + planPath + '\n';
-    prompt += 'contents: ' + planContents + '\n';
-    prompt += 'how to plan: ' + planningSkill + '\n';
-
-    return prompt;
   };
-  window.buildAgentPrompt._hasPlan = true;
-
-  // Heartbeat: wrap fetchAI to inject reminders at maximum recency
-  var prevFetchAI = window.fetchAI;
-  var beatSeen = 0;
-
-  function countToolResults() {
-    var count = 0;
-    for (var i = 0; i < window.chat.length; i++) {
-      var msg = window.chat[i];
-      if (msg.role === 'user' && typeof msg.content === 'string' && msg.content.startsWith('OBSERVATION:')) {
-        count++;
-      }
-    }
-    return count;
-  }
-
-  function getNewestToolResult() {
-    for (var i = window.chat.length - 1; i >= 0; i--) {
-      var msg = window.chat[i];
-      if (msg.role === 'user' && typeof msg.content === 'string' && msg.content.startsWith('OBSERVATION:')) {
-        return msg.content;
-      }
-    }
-    return null;
-  }
 
   window.fetchAI = async function(systemPrompt) {
-    var currentCount = countToolResults();
-    var diff = currentCount - beatSeen;
-    beatSeen = currentCount;
-
-    var shouldRemind = false;
-    if (diff >= 3) {
-      shouldRemind = true;
-    } else if (diff > 0) {
-      var newest = getNewestToolResult();
-      if (newest && newest.includes('Tool Execution Error:')) {
-        shouldRemind = true;
-      }
+    var capacity = parseInt(document.getElementById('compact-threshold').value) || 500000;
+    var totalTokens = window.estimateTokens(systemPrompt);
+    for (var i = 0; i < window.chat.length; i++) {
+      totalTokens += window.estimateTokens(window.chat[i].content);
     }
 
-    if (shouldRemind) {
-      var reminder = { role: 'user', content: 'Reminder: check your plan file (path in the system prompt), update it to match reality, then continue' };
-      window.chat.push(reminder);
-      try {
-        return await prevFetchAI(systemPrompt);
-      } finally {
-        var idx = window.chat.indexOf(reminder);
-        if (idx !== -1) {
-          window.chat.splice(idx, 1);
-        }
-      }
+    if (totalTokens > capacity * 0.8) {
+      window.chatEvents.emit('status', 'compacting...');
+      await window.compactChat();
     }
 
-    return prevFetchAI(systemPrompt);
+    var realChat;
+    var swapped = false;
+    if (window.chatSummary) {
+      realChat = window.chat;
+      window.chat = [{ role: 'system', content: '<summary of earlier conversation>\n' + window.chatSummary.text + '\n</summary>' }].concat(realChat.slice(window.chatSummary.upTo));
+      swapped = true;
+    }
+
+    var out = await prevFetchCompact(systemPrompt);
+
+    if (swapped) {
+      window.chat = realChat;
+    }
+
+    return out;
   };
-  window.fetchAI._hasHeartbeat = true;
-})();
+
+  window.fetchAI._hasCompaction = true;
+}
+</script>
+
+<script>
+var agentIdBytes = new Uint8Array(8);
+crypto.getRandomValues(agentIdBytes);
+var agentId = '';
+for (var i = 0; i < agentIdBytes.length; i++) {
+  var hexByte = agentIdBytes[i].toString(16);
+  if (hexByte.length === 1) hexByte = '0' + hexByte;
+  agentId += hexByte;
+}
+window.agentId = agentId;
+
+var planPath = 'memory#agents/' + window.agentId + '/plan';
+
+var readPlan = async function() {
+  var key = planPath.split('#')[1];
+  return await read(key, 'memory');
+};
+
+var originalBuildAgentPrompt = window.buildAgentPrompt;
+window.buildAgentPrompt = async function() {
+  var prompt = await originalBuildAgentPrompt();
+  var planContents = await readPlan();
+  if (!planContents) planContents = 'empty';
+  prompt += '\nCURRENT PLAN\npath: ' + planPath + '\ncontents: ' + planContents + '\nhow to plan: read the file skills/planning with the read tool\nREPLY FORMAT: end your reply with <<ACTION: name>> and the input on the next line, or <<ANSWER>> and your message on the next line';
+  return prompt;
+};
+window.buildAgentPrompt._hasPlan = true;
+
+var originalFetchAI = window.fetchAI;
+var beatSeen = 0;
+var beatPlanned = false;
+window.fetchAI = async function(systemPrompt) {
+  var userCount = 0;
+  for (var i = 0; i < window.chat.length; i++) {
+    if (window.chat[i].role === 'user') userCount++;
+  }
+  var diff = userCount - beatSeen;
+  var fire = false;
+  if (diff >= 3) {
+    fire = true;
+  } else if (diff >= 1) {
+    var lastUserMsg = null;
+    for (var j = window.chat.length - 1; j >= 0; j--) {
+      if (window.chat[j].role === 'user') {
+        lastUserMsg = window.chat[j].content;
+        break;
+      }
+    }
+    if (lastUserMsg && /error/i.test(lastUserMsg)) {
+      fire = true;
+    }
+  }
+  if (fire) {
+    beatSeen = userCount;
+    var reminderMsg;
+    if (!beatPlanned) {
+      reminderMsg = 'this task is running long — write your plan to the plan path in the system prompt now, one [ ] step per remaining action —';
+      beatPlanned = true;
+    } else {
+      reminderMsg = 'Reminder: check your plan file (path in the system prompt), update it to match reality, then continue';
+    }
+    window.chat.push({ role: 'user', content: reminderMsg });
+    try {
+      return await originalFetchAI(systemPrompt);
+    } finally {
+      window.chat.pop();
+    }
+  } else {
+    return await originalFetchAI(systemPrompt);
+  }
+};
+window.fetchAI._hasHeartbeat = true;
 </script>

@@ -1,19 +1,19 @@
-#tools/list-files?e&w&c=src&p=TASK: Write the complete tool file for the QRx agent tool named list-files
+#tools/list-files?e&w&c=src&p=TASK: Write the complete tool file for the agent tool named list-files
   - PURPOSE: This file is a tool the chat agent calls to discover what files exist so it can infer which file it needs by name before reading it
   - FORMAT: Raw JavaScript only, no script tags, no HTML, no markdown fences, no explanation
-  - Line 1 MUST be one single block comment in this exact style: /* list-files - list the names of files that exist so you can discover and choose files. INPUT: empty for all files in the current namespace, a prefix like apps/ to filter, oz%23 for all files in namespace oz, oz%23apps/ for a prefix in namespace oz */
+  - Line 1 MUST be one single block comment in this exact style: /* list-files - list the names of files that exist so you can discover and choose files. INPUT: empty for all files in the current namespace, a prefix like apps/ to filter, docs%23 for all files in namespace docs, docs%23apps/ for a prefix in namespace docs */
   - The code you write IS the body of an async function whose only argument INPUT is a raw string, write top level statements ONLY, do NOT define a function, do NOT wrap the code in anything
   - The kernel globals keys, getDB and IDBKeyRange are already in scope, call them directly, NEVER redeclare or shadow kernel globals
   - SPELLING: the key range global is spelled IDBKeyRange, capital I, capital D, capital B, it stands for IndexedDB, writing IDKeyRange or IdbKeyRange is a fatal error, copy the exact spelling from the kernel source where it queries boot files
   - STEP 1: start one try block and trim INPUT inside it
-  - STEP 2: split the input on the first %23 character, everything before it is the namespace and everything after it is the prefix, if there is no %23 the namespace is undefined and the whole input is the prefix
+  - STEP 2: split the input on the first %23 character using indexOf and slice, NEVER the split function with a limit — split with limit 1 returns an array holding ONLY the namespace and leaves the prefix undefined, and an undefined prefix crashes IDBKeyRange with not a valid key — the exact pattern: var hashIndex = input.indexOf('%23'), when hashIndex is -1 the namespace is undefined and the prefix is the whole input, otherwise namespace is input.slice(0, hashIndex) and prefix is input.slice(hashIndex %2B 1)
   - STEP 3: look at how the kernel keys(q, d) function passes d to the tx function, d must be a database handle not a string, so if a namespace was given first await getDB(namespace) and use that handle, BE HYPER AWARE OF PROMISES
-  - STEP 4: if the prefix is empty call keys with undefined as the query to get every key, otherwise call keys with IDBKeyRange.bound of the prefix and the prefix concatenated with the highest character, look at how the kernel queries boot files for the exact pattern
+  - STEP 4: if the prefix is empty or undefined call keys with undefined as the query to get every key, otherwise call keys with IDBKeyRange.bound of the prefix and the prefix concatenated with the highest character — write the highest character as the escape sequence '\uffff', the six keystrokes backslash u f f f f inside quotes, exactly how the kernel source writes it when it queries boot files, NEVER the raw character itself, a raw character gets mangled into mojibake the moment anything touches the file with the wrong encoding
   - STEP 5: await the keys call
   - STEP 6: if no keys match return the string No files found: followed by the input
   - STEP 7: sort the keys alphabetically and return them joined as one newline separated string
   - Close the try with a catch that returns the string Error: followed by the error message
   - Never throw, always return a string so the agent loop can continue
-  - Before outputting, re-read your code and verify every key range reference is spelled IDBKeyRange exactly
+  - Before outputting, re-read your code and verify three things: every key range reference is spelled IDBKeyRange exactly, the prefix receives everything after the first %23 through slice never an element of a split array, and the range upper bound is the quoted escape '\uffff' not a raw character
   - OUTPUT: only the raw JavaScript code, nothing else
 &w

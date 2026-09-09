@@ -87,15 +87,32 @@
   - BE HYPER AWARE OF PROMISES: read() and fetch() return promises, every async step must be awaited or .then()ed, never let [object Promise] leak into a string
   - use var for all variable declarations
   - ONLY generate this SCRIPT tag, do not return the previous code
-&w&a=1&p=TASK: output a SCRIPT tag with the agent reasoning loop that upgrades the chat into an agent
-  - create global function window.parseAction(text): match regex /<<ACTION:\s*([^\>]\%2B)>>\n([\s\S]\%2A\%3F)(\%3F=<<|$)/, when matched return { name: match[1].trim(), input: match[2].trim() }, otherwise return null
-  - create global function window.parseAnswer(text): match regex /<<ANSWER>>\n([\s\S]\%2A\%3F)(\%3F=<<|$)/, when matched return match[1] EVEN WHEN IT IS EMPTY OR WHITESPACE, otherwise return null; an empty answer is still a valid termination and must never be treated as a failure
+&w&a=1&p=TASK: output a SCRIPT tag with the reply parsers for the agent loop
+  - create one script-level helper function clean(raw) that both parsers below call on every captured text:
+    - trim the input, then LOOP: while the text ends with any of these exact literals — </ACTION> or </ACTION>> or </ANSWER> or </ANSWER>> or </tool_input> or </invoke> or </parameter> or </tool_call> or </function_calls> — cut that final tag off and trim again, repeat until none match
+    - the loop matters because the model sometimes double-closes or stacks its envelope tags and a single pass leaves junk behind, the junk then becomes part of a file name or file content
+    - NEVER strip a generic closing-tag pattern with a regex — real file content can legitimately end with a closing tag like </html> and a generic strip would eat it
+  - create global function window.parseAction(text) with two stages:
+    - STAGE 1 primary: match regex /<<ACTION:\s*([^\>]\%2B)>>\n([\s\S]\%2A\%3F)(\%3F=<<|$)/, when matched return { name: match[1].trim(), input: clean(match[2]) }
+    - STAGE 2 native fallback, only when stage 1 misses: the model sometimes emits its own native tool envelope instead — match /<invoke name="([^"]\%2B)">/ once, when it misses return null
+    - when the invoke matched: var rest = the text after the match, cut at the next <invoke when one exists
+    - collect every parameter value from rest with the global regex /<parameter name="[^"]\%2B">([\s\S]\%2A\%3F)<\/parameter>/g in document order
+    - build the input: one parameter becomes its value, several parameters become their values joined with single newlines in document order so a path parameter followed by a content parameter lands as first line path then content — the exact INPUT contract of the write tool — zero parameters means the empty string
+    - return { name: the invoke name trimmed, input: clean(the built input) }
+  - create global function window.parseAnswer(text): match regex /<<ANSWER>>\n([\s\S]\%2A\%3F)(\%3F=<<|$)/, when matched return clean(match[1]) EVEN WHEN IT IS EMPTY OR WHITESPACE, otherwise return null; an empty answer is still a valid termination and must never be treated as a failure
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag with the system prompt builder for the agent loop
   - create global async function window.buildAgentPrompt(): resolve the base system prompt (system-file input via await read, then localStorage key s, then a default), then append these sections in order:
     - OUTPUT FORMAT rules, short and absolute: every single reply MUST end with exactly one of the two tags; to use a tool output <<ACTION: tool_name>> then the input on the next line; to finish output <<ANSWER>> then the final message on the next line; NEVER use XML or <tool_call> tags; NEVER narrate tool use in plain prose; the <<ACTION>> tag is the only way a tool runs; a reply with no tag is a format error
     - a concrete EXAMPLE block showing one full well-formed finishing reply: <<ANSWER>> on its own line followed by an example sentence on the next line
     - AVAILABLE TOOLS: when window.getActiveToolsString exists, await it and include the result, otherwise the line NO TOOLS AVAILABLE, ANSWER DIRECTLY
     - CURRENT PLAN: window.agentPlan
     - WORKING MEMORY: every key of window.agentScratchpad rendered as a MEMORY POINTER section, or the line [Empty] when there are none
+  - BE HYPER AWARE OF PROMISES: read() returns a promise, every async step must be awaited, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag with the agent reasoning loop that upgrades the chat into an agent
   - create global async function window.runAgent(userMessage):
     - push { role: 'user', content: userMessage } onto window.chat and emit user with userMessage
     - var errorCount = 0 and var formatFails = 0, then start a while(true) loop
@@ -110,15 +127,15 @@
       - when action exists but window.executeTool does NOT exist: push { role: 'user', content: 'SYSTEM WARNING: no tool executor installed. Answer directly with <<ANSWER>>.' } onto window.chat and continue the loop
       - var answer = window.parseAnswer(aiResponse)
       - when answer is NOT null (use an explicit null check, never a truthiness check): emit done with answer and break the loop
-      - fallback when neither matched: formatFails increments; when formatFails reaches 3, emit error with 'model failed the output format 3 times', emit done with aiResponse as a graceful fallback, and break the loop; otherwise push { role: 'user', content: 'SYSTEM WARNING: format error. Your previous reply had no tag. Reply again and your reply MUST end with <<ACTION: name>> or <<ANSWER>>.' } onto window.chat and continue the loop
+      - fallback when neither matched: formatFails increments; when formatFails reaches 3, emit error with 'model failed the output format 3 times', emit done with aiResponse as a graceful fallback, and break the loop; otherwise push { role: 'user', content: 'SYSTEM WARNING: format error. Your last reply had no usable tag. Reply again and end it one of two ways: <<ACTION: name>> then the tool input on the next line, or <<ANSWER>> then your message on the next line. Put nothing after the input or message.' } onto window.chat and continue the loop
     - on catch: errorCount increments, emit error with err.message, break the loop when errorCount reaches 7
+  - the window.runAgent function definition ENDS here, everything below is TOP LEVEL script code that runs once when the script loads, NOT part of the function body, do not place it inside the function
   - rewire the UI from plain chat to agent mode, and this is the critical part: for EACH of the THREE elements id submit-btn, id stop-btn AND id user-input, replace the element with a fresh clone of itself via element.replaceWith(element.cloneNode(true)) so ALL listeners from the previous script are dropped; the textarea is the easy one to forget and it carries a stale Ctrl%2BEnter listener bound to window.sendChat, if it is not cloned the old plain-chat path keeps firing
   - after cloning, re-fetch all three elements by id and bind: click on submit-btn and Ctrl%2BEnter keydown on user-input call window.runAgent with the trimmed textarea value when non-empty and then clear the textarea; click on stop-btn sets window.stopAgent = true and aborts window.abortCtrl when it exists
   - keep window.sendChat intact so plain chat stays available as a fallback
   - BE HYPER AWARE OF PROMISES: read(), fetch() and executeTool() return promises, every async step must be awaited, never let [object Promise] leak into a string
+  - VERIFY: re-read your code and confirm the clone-and-rebind lines sit at the top level of the script, after and outside the window.runAgent definition — if they are inside the function the button stays bound to plain chat and the agent never sees its tools
   - use var for all variable declarations
-  - ONLY generate this SCRIPT tag, do not return the previous code
-&w
   - ONLY generate this SCRIPT tag, do not return the previous code
 &w&a=1&p=TASK: output a SCRIPT tag with the dynamic tool loader and executor
   - tools are plain files stored under the folder named in the id tools-folder input; each tool file starts with a /* description */ comment followed by javascript that receives its arguments as the variable INPUT and returns a string result
@@ -200,18 +217,26 @@
   - BE HYPER AWARE OF PROMISES: read() and fetch() return promises, every async step must be awaited, never let [object Promise] leak into a string
   - use var for all variable declarations
   - ONLY generate this SCRIPT tag, do not return the previous code
-&w&a=1&p=TASK: output a SCRIPT tag that gives each agent window its own plan file in the memory dataverse and keeps the plan alive during long tasks
+&w&a=1&p=TASK: output a SCRIPT tag that gives each agent window its own plan file in the memory dataverse and keeps long tasks on track
   - AGENT ID: on script load, create window.agentId as a hex string — call crypto.getRandomValues on a new Uint8Array(8) and convert each byte to two hex digits — never write it to localStorage or sessionStorage, every window must get its own fresh id
   - PLAN PATH: this agent's plan file is one single path — the string memory%23agents/ followed by window.agentId followed by /plan — overwritten by each new task, no subfolders
-  - NAMESPACE SPLIT: the kernel globals read(k, d) and write(v, k, d) take the key and the namespace as SEPARATE arguments and never parse %23 themselves — to touch the plan file, split the path at the first %23, use everything after it as the key, and pass the string memory as the namespace argument
-  - PLAN SECTION: wrap window.buildAgentPrompt with unique capture names and an idempotency flag, never self-call the wrapped name — after calling the original, append at the very END of the prompt exactly these four lines: a line CURRENT PLAN, a line path: followed by the resolved literal plan path (interpolate the real string, never describe it as a formula), a line contents: followed by the current file text (await the read, use the word empty when the file does not exist), a line how to plan: read the file skills%23planning with the read tool
-  - the CURRENT PLAN section must be the last thing in the prompt, after every other section
+  - NAMESPACE SPLIT: the kernel globals read(k, d) and write(v, k, d) take the key and the namespace as SEPARATE arguments and never parse %23 themselves — to touch the plan file, split the path at the first %23, use everything after it as the key, and pass the string memory as the namespace argument — this split is ONLY for the plan file, skills and tools are plain filenames like skills/planning
+  - PLAN SECTION: wrap window.buildAgentPrompt with unique capture names and an idempotency flag, never self-call the wrapped name — after calling the original, append at the very END of the prompt exactly these lines:
+    - a line CURRENT PLAN
+    - a line path: followed by the resolved literal plan path, interpolate the real string, never describe it as a formula
+    - a line contents: followed by the current file text, await the read, use the word empty when the file does not exist
+    - a line how to plan: read the file skills/planning with the read tool
+    - a final line REPLY FORMAT: end your reply with <<ACTION: name>> and the input on the next line, or <<ANSWER>> and your message on the next line
+  - the CURRENT PLAN section is the last SECTION in the prompt, followed only by the one REPLY FORMAT line — the full output rules sit in the middle of the prompt where attention is weakest, this line restates them at the strongest position
   - HEARTBEAT: wrap window.fetchAI with unique capture names and an idempotency flag
-  - keep one module-level number beatSeen — how many tool-result messages were in window.chat at the last check — tool-result messages are the user-role messages the agent loop pushes after running a tool, read the loop code in context and match its exact format, never invent a prefix
-  - on every call: count those messages now, subtract beatSeen, then update beatSeen — fire the reminder when the difference is 3 or more, or when the newest one is an error in the loop's own error format — but NEVER fire when the difference is zero, a reminder with nothing new behind it is noise the model learns to ignore
-  - firing means: push { role: 'user', content: 'Reminder: check your plan file (path in the system prompt), update it to match reality, then continue' } onto window.chat, await the original fetchAI, then remove that message again in a finally block — it exists only for the duration of this one request, emit no events for it so the UI never renders it
-  - keep the reminder short, single-purpose, and role user — it must sit at maximum recency, immediately before the model's next decision
-  - VERIFY: re-read your code and confirm the reminder message exists only inside the outgoing request, the plan path is interpolated as a resolved literal string, the id comes from crypto.getRandomValues, and every wrapper follows the house rules
+  - keep one module-level number beatSeen starting at 0 — a bookmark for how many user-role messages existed at the last reminder — and one module-level boolean beatPlanned starting false — whether the plan-now reminder has been sent yet
+  - on every call: count ALL user-role messages in window.chat, subtract beatSeen, and treat the difference as how many tool results arrived since the last reminder — do NOT update beatSeen yet
+  - fire when the difference is 3 or more, or when the difference is at least 1 and the newest user-role message reports an error in the loop's own error format, read that format from the loop code in context
+  - only when firing, set beatSeen to the current count — never on any other call, or the difference can never reach 3 and the heartbeat never fires
+  - firing means pushing one short role user message onto window.chat, awaiting the original fetchAI, then removing that message again in a finally block — it exists only inside this one request, emit no events for it so the UI never renders it
+  - the message text while beatPlanned is false: this task is running long — write your plan to the plan path in the system prompt now, one [ ] step per remaining action — and set beatPlanned true when this version fires
+  - the message text once beatPlanned is true: Reminder: check your plan file (path in the system prompt), update it to match reality, then continue
+  - VERIFY: re-read your code and confirm beatSeen updates only when firing, the reminder exists only inside the outgoing request, the plan path is interpolated as a resolved literal string, the id comes from crypto.getRandomValues, and every wrapper follows the house rules
   - use var for all variable declarations
   - ONLY generate this SCRIPT tag, do not return the previous code
 &w
