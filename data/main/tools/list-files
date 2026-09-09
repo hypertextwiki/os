@@ -3,15 +3,12 @@
 /* list-files - list the names of files that exist so you can discover and choose files. INPUT: empty for all files in the current namespace, a prefix like apps/ to filter, oz# for all files in namespace oz, oz#apps/ for a prefix in namespace oz */
 try {
   let input = INPUT.trim();
-  let idx = input.indexOf('#');
   let ns, prefix;
-  if (idx === -1) {
+  if (input.includes('#')) {
+    [ns, prefix] = input.split('#', 1);
+  } else {
     ns = undefined;
     prefix = input;
-  } else {
-    ns = input.slice(0, idx);
-    prefix = input.slice(idx + 1);
-    if (ns === '') ns = undefined;
   }
   let dbHandle;
   if (ns !== undefined) {
@@ -23,14 +20,14 @@ try {
   if (prefix === '') {
     query = undefined;
   } else {
-    query = IDKeyRange.bound(prefix, prefix + '\uFFFF');
+    query = IDBKeyRange.bound(prefix, prefix + '\uffff');
   }
-  let resultKeys = await keys(query, dbHandle);
-  if (!resultKeys || resultKeys.length === 0) {
-    return `No files found: ${input}`;
+  let keysList = await keys(query, dbHandle);
+  if (!keysList || keysList.length === 0) {
+    return "No files found: " + input;
   }
-  resultKeys.sort();
-  return resultKeys.join('\n');
+  keysList.sort();
+  return keysList.join('\n');
 } catch (e) {
-  return `Error: ${e.message}`;
+  return "Error: " + e.message;
 }

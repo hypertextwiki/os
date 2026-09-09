@@ -533,161 +533,71 @@ if (window.buildAgentPrompt && !window.buildAgentPrompt._hasIdentity) {
 </script>
 
 
+
 <script>
-// chunked context compaction
-// compact-threshold is the models total capacity, trigger fires at 80 percent of it, chunks are 40 percent of it, the raw tail is 10 percent of it, the raw chat array is never mutated so deleting window.chatSummary rewinds time
-if (window.fetchAI && !window.fetchAI._hasCompaction) {
-  var prevFetchCompact = window.fetchAI;
+var agentIdBytes = new Uint8Array(16);
+crypto.getRandomValues(agentIdBytes);
+var agentId = Array.from(agentIdBytes).map(b => b.toString(16).padStart(2,'0')).join('');
+window.agentId = agentId;
 
-  window.estimateTokens = function(text) {
-    return Math.ceil(text.length / 4 * 1.2);
-  };
+var agentBase = 'memory#agents/' + agentId;
 
-  window.summarizeText = async function(text, instructions) {
-    var model = document.getElementById('model-name').value;
-    var host = document.getElementById('model-host').value;
-    var apikey = document.getElementById('api-key').value;
-    var headers = { 'Content-Type': 'application/json' };
-    if (apikey) headers.Authorization = 'Bearer ' + apikey;
-    var resp = await fetch(host, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          { role: 'system', content: instructions },
-          { role: 'user', content: text }
-        ],
-        stream: false
-      })
-    });
-    var json = await resp.json();
-    return json.choices[0].message.content;
-  };
-
-  window.compactChat = async function() {
-    try {
-      var capacity = parseInt(document.getElementById('compact-threshold').value) || 500000;
-      var maxChunk = Math.floor(capacity * 0.4);
-      
-      // walk backwards collecting raw tail
-      var tailTokens = 0;
-      var tailStart = window.chat.length;
-      var count = 0;
-      while (tailStart > 0) {
-        var msg = window.chat[tailStart - 1];
-        var msgTokens = window.estimateTokens(msg.content || '');
-        tailTokens += msgTokens;
-        tailStart--;
-        count++;
-        if (count >= 2 && tailTokens >= capacity * 0.1) break;
-      }
-      
-      var regionEnd = tailStart;
-      if (regionEnd === 0) return;
-      
-      var start = window.chatSummary ? window.chatSummary.upTo : 0;
-      if (start >= regionEnd) return;
-      
-      // build transcript
-      var transcript = '';
-      if (window.chatSummary) {
-        transcript += 'PREVIOUS SUMMARY:\n' + window.chatSummary.text + '\n\n';
-      }
-      for (var i = start; i < regionEnd; i++) {
-        transcript += window.chat[i].role + ': ' + window.chat[i].content + '\n';
-      }
-      
-      var summary;
-      if (window.estimateTokens(transcript) <= maxChunk) {
-        summary = await window.summarizeText(transcript, 'You are a compaction engine. Summarize this conversation transcript for an agent that will continue it. Preserve with maximum recall: the users goals, every decision made, every fact or file name mentioned, tool results that matter, and all open questions. Discard filler. Output only the summary.');
-      } else {
-        // greedily group region messages into chunks
-        var chunks = [];
-        var currentChunk = '';
-        if (window.chatSummary) {
-          currentChunk = 'PREVIOUS SUMMARY:\n' + window.chatSummary.text + '\n\n';
-        }
-        for (var j = start; j < regionEnd; j++) {
-          var msgText = window.chat[j].role + ': ' + window.chat[j].content + '\n';
-          if (window.estimateTokens(currentChunk + msgText) <= maxChunk) {
-            currentChunk += msgText;
-          } else {
-            if (currentChunk) {
-              chunks.push(currentChunk);
-            }
-            currentChunk = msgText;
-            if (window.estimateTokens(currentChunk) > maxChunk) {
-              chunks.push(currentChunk);
-              currentChunk = '';
-            }
-          }
-        }
-        if (currentChunk) chunks.push(currentChunk);
-        
-        // summarize each chunk
-        var partials = [];
-        for (var k = 0; k < chunks.length; k++) {
-          var s = await window.summarizeText(chunks[k], 'You are a compaction engine. Summarize this conversation transcript for an agent that will continue it. Preserve with maximum recall: the users goals, every decision made, every fact or file name mentioned, tool results that matter, and all open questions. Discard filler. Output only the summary.');
-          partials.push(s);
-        }
-        
-        // reduce
-        var joined = partials.join('\n');
-        while (window.estimateTokens(joined) > maxChunk) {
-          var maxChars = Math.floor(maxChunk * 4 / 1.2);
-          var subChunks = [];
-          for (var pos = 0; pos < joined.length; pos += maxChars) {
-            subChunks.push(joined.substring(pos, pos + maxChars));
-          }
-          var newPartials = [];
-          for (var m = 0; m < subChunks.length; m++) {
-            var ss = await window.summarizeText(subChunks[m], 'You are a compaction engine. Summarize this conversation transcript for an agent that will continue it. Preserve with maximum recall: the users goals, every decision made, every fact or file name mentioned, tool results that matter, and all open questions. Discard filler. Output only the summary.');
-            newPartials.push(ss);
-          }
-          joined = newPartials.join('\n');
-        }
-        
-        // final merge
-        summary = await window.summarizeText(joined, 'Merge these partial summaries into one cohesive summary. Preserve decisions, TODOs, open questions, file names, and constraints. Output only the summary.');
-      }
-      
-      window.chatSummary = { text: summary, upTo: regionEnd };
-      window.chatEvents.emit('compact', start + '-' + window.chatSummary.upTo + ' messages summarized into ' + window.estimateTokens(summary) + ' tokens');
-    } catch (err) {
-      window.chatEvents.emit('error', err.message);
-    }
-  };
-
-  window.fetchAI = async function(systemPrompt) {
-    var capacity = parseInt(document.getElementById('compact-threshold').value) || 500000;
-    
-    // estimate total tokens
-    var totalTokens = window.estimateTokens(systemPrompt);
-    for (var i = 0; i < window.chat.length; i++) {
-      totalTokens += window.estimateTokens(window.chat[i].content || '');
-    }
-    
-    if (totalTokens >= capacity * 0.8) {
-      window.chatEvents.emit('status', 'compacting...');
-      await window.compactChat();
-    }
-    
-    var realChat = null;
-    if (window.chatSummary) {
-      realChat = window.chat;
-      window.chat = [{ role: 'system', content: '<summary of earlier conversation>\n' + window.chatSummary.text + '\n</summary>' }].concat(realChat.slice(window.chatSummary.upTo));
-    }
-    
-    var out = await prevFetchCompact(systemPrompt);
-    
-    if (realChat) {
-      window.chat = realChat;
-    }
-    
-    return out;
-  };
-  
-  window.fetchAI._hasCompaction = true;
+function splitPath(p) {
+    var idx = p.indexOf('#');
+    if (idx === -1) return {ns: '', key: p};
+    return {ns: p.slice(0, idx), key: p.slice(idx+1)};
 }
+
+function agentRead(path) {
+    var parts = splitPath(path);
+    return read(parts.key, parts.ns);
+}
+
+function agentWrite(value, path) {
+    var parts = splitPath(path);
+    return write(value, parts.key, parts.ns);
+}
+
+var planPath = agentBase + '/plan/current';
+var privatePrefix = agentBase + '/private/';
+var memoryPrefix = agentBase + '/memory/';
+
+var prevBuildPlan = window.buildAgentPrompt;
+window._hasPlan = true;
+window.buildAgentPrompt = async function() {
+    var basePrompt = await prevBuildPlan();
+    var planContent = await agentRead(planPath);
+    if (!planContent) planContent = 'No plan file yet.';
+    var planSection = '\nCURRENT PLAN:\n' + planContent + '\nbefore starting any multi-step task read the skill file skills/planning and follow it';
+    var memorySection = '\nMEMORY: your memory lives in the memory namespace under agents/ plus your agent id, save durable facts as files under your memory subpath, save private scratch notes under your private subpath, recall anything with the read tool, list everything you know with list-files on these prefixes, always use the full namespace paths like memory#agents/ when calling tools';
+    return basePrompt + planSection + memorySection;
+};
+
+var prevFetchBeat = window.fetchAI;
+window._hasPlanBeat = true;
+var lastChatLength = window.chat.length;
+window.fetchAI = async function(systemPrompt) {
+    var newToolResults = 0;
+    var newestToolResult = null;
+    for (var i = lastChatLength; i < window.chat.length; i++) {
+        var msg = window.chat[i];
+        if (msg.role === 'user' && msg.content && msg.content.startsWith('OBSERVATION:')) {
+            newToolResults++;
+            newestToolResult = msg.content;
+        }
+    }
+    var needReminder = newToolResults >= 3 || (newToolResults > 0 && newestToolResult && newestToolResult.slice('OBSERVATION:\n'.length).startsWith('Error:'));
+    if (needReminder) {
+        var reminder = 'Reminder: your plan file is at your plan path in the memory namespace. If your progress changed, rewrite it with the write tool before continuing. If you hit an error, update the plan with what you learned';
+        window.chat.push({ role: 'user', content: reminder });
+        var result = await prevFetchBeat(systemPrompt);
+        window.chat.pop();
+        lastChatLength = window.chat.length;
+        return result;
+    } else {
+        var result = await prevFetchBeat(systemPrompt);
+        lastChatLength = window.chat.length;
+        return result;
+    }
+};
 </script>

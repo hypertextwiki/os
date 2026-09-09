@@ -4,6 +4,7 @@
   - Line 1 MUST be one single block comment in this exact style: /* list-files - list the names of files that exist so you can discover and choose files. INPUT: empty for all files in the current namespace, a prefix like apps/ to filter, oz%23 for all files in namespace oz, oz%23apps/ for a prefix in namespace oz */
   - The code you write IS the body of an async function whose only argument INPUT is a raw string, write top level statements ONLY, do NOT define a function, do NOT wrap the code in anything
   - The kernel globals keys, getDB and IDBKeyRange are already in scope, call them directly, NEVER redeclare or shadow kernel globals
+  - SPELLING: the key range global is spelled IDBKeyRange, capital I, capital D, capital B, it stands for IndexedDB, writing IDKeyRange or IdbKeyRange is a fatal error, copy the exact spelling from the kernel source where it queries boot files
   - STEP 1: start one try block and trim INPUT inside it
   - STEP 2: split the input on the first %23 character, everything before it is the namespace and everything after it is the prefix, if there is no %23 the namespace is undefined and the whole input is the prefix
   - STEP 3: look at how the kernel keys(q, d) function passes d to the tx function, d must be a database handle not a string, so if a namespace was given first await getDB(namespace) and use that handle, BE HYPER AWARE OF PROMISES
@@ -13,5 +14,6 @@
   - STEP 7: sort the keys alphabetically and return them joined as one newline separated string
   - Close the try with a catch that returns the string Error: followed by the error message
   - Never throw, always return a string so the agent loop can continue
+  - Before outputting, re-read your code and verify every key range reference is spelled IDBKeyRange exactly
   - OUTPUT: only the raw JavaScript code, nothing else
 &w

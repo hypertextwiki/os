@@ -200,4 +200,18 @@
   - BE HYPER AWARE OF PROMISES: read() and fetch() return promises, every async step must be awaited, never let [object Promise] leak into a string
   - use var for all variable declarations
   - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: Add per-agent memory and plan maintenance to the existing chat app
+  - SESSION ID: on load set window.agentId to a fresh random id generated with crypto.getRandomValues, never persist it, each window or iframe instance is its own agent, use var for all variable declarations
+  - HARDCODED BASE: the agent memory base path is memory%23agents/ followed by window.agentId, the part before the %23 is the namespace, the part after is the key prefix inside that namespace
+  - NAMESPACE SPLIT: whenever this script calls the kernel read or write with a base path, split the full path at the first %23 into namespace and key, then call read(key, namespace) or write(value, key, namespace), never pass a string containing %23 as the key, BE HYPER AWARE OF PROMISES
+  - HARDCODED SUBPATHS: the plan file key is the base key prefix plus /plan/current, private scratch notes live under the base key prefix plus /private/, durable memory lives under the base key prefix plus /memory/
+  - Wrap window.buildAgentPrompt using a uniquely named capture variable prevBuildPlan and an idempotency flag window._hasPlan, NEVER call window.buildAgentPrompt inside its own wrapper
+  - In the wrapper read the plan file with await read using the split form, if missing use this text instead: No plan file yet. For any task needing more than 2 steps, create your plan file with the write tool as a checklist
+  - The wrapper appends its new content at the very END of the assembled prompt, never in the middle, because the end of the prompt gets the most attention
+  - First appended section: CURRENT PLAN with the plan file contents, then one line: before starting any multi-step task read the skill file skills/planning and follow it
+  - Second appended section: MEMORY, teaching: your memory lives in the memory namespace under agents/ plus your agent id, save durable facts as files under your memory subpath, save private scratch notes under your private subpath, recall anything with the read tool, list everything you know with list-files on these prefixes, always use the full namespace paths like memory%23agents/ when calling tools
+  - Wrap window.fetchAI using a uniquely named capture variable prevFetchBeat and an idempotency flag window._hasPlanBeat, NEVER call window.fetchAI inside its own wrapper
+  - The wrapper counts new tool result messages in window.chat since the last reminder, and fires when either 3 tool results have passed OR the newest tool result starts with Error:
+  - When it fires it appends one reminder message as the FINAL message of the outgoing request ONLY, never into window.chat, saying: Reminder: your plan file is at your plan path in the memory namespace. If your progress changed, rewrite it with the write tool before continuing. If you hit an error, update the plan with what you learned
+  - ONLY generate this SCRIPT tag, do not return the previous code
 &w
