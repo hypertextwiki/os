@@ -4,10 +4,10 @@
 try {
   const lines = INPUT.split('\n');
   const path = lines[0].trim();
-  const content = lines.slice(1).join('\n');
   if (!path) return 'Error: no file path provided';
-  const hashIndex = path.indexOf('#');
+  const content = lines.slice(1).join('\n');
   let namespace, filename;
+  const hashIndex = path.indexOf('#');
   if (hashIndex !== -1) {
     namespace = path.substring(0, hashIndex) || undefined;
     filename = path.substring(hashIndex + 1);
@@ -16,7 +16,7 @@ try {
     filename = path;
   }
   await write(content, filename, namespace);
-  return `Wrote ${content.length} characters to ${path}`;
+  return `Wrote ${content.length} characters and ${path}`;
 } catch (e) {
   return `Error: ${e.message}`;
 }

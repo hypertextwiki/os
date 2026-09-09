@@ -2,27 +2,24 @@
 
 /* delete - permanently delete a file. INPUT: a bare file name like old.txt for the current namespace, or namespace#filename like oz#old.txt for another namespace */
 try {
-  let path = INPUT.trim();
-  if (!path) return "Error: no file path provided";
-  let hashIdx = path.indexOf('#');
-  let namespace, filename;
-  if (hashIdx !== -1) {
-    namespace = path.slice(0, hashIdx);
-    filename = path.slice(hashIdx + 1);
+  let input = INPUT.trim();
+  if (!input) return "Error: no file path provided";
+  let hashIndex = input.indexOf("#");
+  let ns, fname;
+  if (hashIndex !== -1) {
+    ns = input.slice(0, hashIndex);
+    fname = input.slice(hashIndex + 1);
   } else {
-    namespace = undefined;
-    filename = path;
+    ns = undefined;
+    fname = input;
   }
-  let dbHandle;
-  if (namespace) {
-    dbHandle = await getDB(namespace);
-  } else {
-    dbHandle = db;
+  let dbHandle = ns ? await getDB(ns) : db;
+  let fileContent = await read(fname, dbHandle);
+  if (fileContent === undefined || fileContent === null) {
+    return `Error: file not found: ${input}`;
   }
-  let existing = await read(filename, namespace);
-  if (!existing) return "Error: file not found: " + path;
-  await queryDB(tx("readwrite", dbHandle).delete(filename));
-  return "Deleted: " + path;
-} catch (e) {
-  return "Error: " + (e.message || e);
+  await queryDB(tx("readwrite", dbHandle).delete(fname));
+  return `Deleted: ${input}`;
+} catch (err) {
+  return `Error: ${err.message || err}`;
 }
