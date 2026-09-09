@@ -1,0 +1,16 @@
+#tools/read?e&w&c=src&p=TASK: Write the complete tool file for the QRx agent tool named read
+  - PURPOSE: This file is a tool the chat agent calls to read any file from any namespace
+  - FORMAT: Raw JavaScript only, no script tags, no HTML, no markdown fences, no explanation
+  - Line 1 MUST be one single block comment in this exact style: /* read - read a file by name. INPUT: a bare file name like notes.txt for the current namespace, or namespace%23filename like oz%23devlog for another namespace */
+  - The code you write IS the body of an async function whose only argument INPUT is a raw string, write top level statements ONLY, do NOT define a function, do NOT wrap the code in anything
+  - The kernel global read(filename, namespace) is already in scope and returns a Promise of the file contents or undefined, call it directly, NEVER declare var read or shadow any kernel global
+  - STEP 1: start one try block and trim INPUT inside it so a bad INPUT can never crash the tool
+  - STEP 2: if the trimmed input is empty return the string Error: no file path provided
+  - STEP 3: find the first %23 character, everything before it is the namespace, everything after it is the filename, if there is no %23 the whole input is the filename and namespace stays undefined
+  - STEP 4: await read(filename, namespace) and store the result, an undefined namespace reads the current namespace, BE HYPER AWARE OF PROMISES
+  - STEP 5: if the result is undefined or null return the string Error: file not found: followed by the input
+  - STEP 6: if the result is not a string return JSON.stringify of it, otherwise return it as is
+  - Close the try with a catch that returns the string Error: followed by the error message
+  - Never throw, always return a string so the agent loop can continue
+  - OUTPUT: only the raw JavaScript code, nothing else
+&w

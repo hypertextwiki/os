@@ -171,4 +171,33 @@
   - BE HYPER AWARE OF PROMISES: read() returns a promise, every async step must be awaited, never let [object Promise] leak into a string
   - use var for all variable declarations
   - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that adds chunked context compaction to the chat
+  - CRITICAL CAPTURE RULE: top-level var declarations are globals shared by every script, so capture the old fetch under a UNIQUE name: var prevFetchCompact = window.fetchAI; inside the new wrapper call ONLY prevFetchCompact, never window.fetchAI and never a generic name, another wrapper script will overwrite a generic name and cause infinite recursion
+  - IDEMPOTENCY RULE: before wrapping, when window.fetchAI._hasCompaction is already true, do nothing and end the script; after wrapping, set window.fetchAI._hasCompaction = true
+  - the id compact-threshold input declares the MODELS TOTAL CONTEXT CAPACITY in tokens, it is not a soft hint: every call the app makes, including internal summarization calls, must fit inside it
+  - create global function window.estimateTokens(text): return Math.ceil of (text length divided by 4) times 1.2, the 1.2 is a safety margin because character-based estimates can undercount
+  - create global async function window.summarizeText(text, instructions): read model, host, apikey from ids model-name, model-host, api-key; make a non-streaming fetch POST to host with Content-Type application/json and Authorization Bearer plus apikey only when non-empty; body is JSON.stringify({ model: model, messages: [{ role: 'system', content: instructions }, { role: 'user', content: text }], stream: false }); return choices[0].message.content; this function never touches window.chat
+  - create global async function window.compactChat():
+    - var capacity = parseInt of the id compact-threshold input value, fallback 500000 when NaN
+    - var maxChunk = Math.floor(capacity times 0.4), so one chunk plus the summarizer instructions plus the models reply all fit inside capacity
+    - walk window.chat BACKWARDS from the end, collecting messages into a raw tail until their estimated tokens reach 10 percent of capacity, always keeping at least the last 2 messages; everything before the tail is the region to compact; when the region is empty, return
+    - var start = window.chatSummary %3F window.chatSummary.upTo : 0; render the region from index start as lines of role colon content into one transcript string; when window.chatSummary exists, prepend its text under a line PREVIOUS SUMMARY so summaries chain
+    - when the transcript estimate fits inside maxChunk: var summary = await window.summarizeText(transcript, 'You are a compaction engine. Summarize this conversation transcript for an agent that will continue it. Preserve with maximum recall: the users goals, every decision made, every fact or file name mentioned, tool results that matter, and all open questions. Discard filler. Output only the summary.')
+    - otherwise MAP: greedily group the region messages into chunks whose estimated tokens stay under maxChunk, never splitting a single message (a message bigger than maxChunk becomes its own chunk), then summarize each chunk one at a time with summarizeText and the same compaction instructions
+    - then REDUCE: join the partial summaries with newlines; while the joined text still exceeds maxChunk, split IT into maxChunk-sized pieces and summarize each piece again; finish with one final summarizeText call on the remaining text using merge instructions: 'Merge these partial summaries into one cohesive summary. Preserve decisions, TODOs, open questions, file names, and constraints. Output only the summary.'
+    - set window.chatSummary = { text: summary, upTo: the index where the raw tail begins }
+    - emit compact with the string start %2B '-' %2B window.chatSummary.upTo %2B ' messages summarized into ' %2B window.estimateTokens(summary) %2B ' tokens'
+    - wrap the whole function in try/catch: on any error emit error with err.message and leave window.chatSummary unchanged, compaction failure must never break the chat
+    - NEVER modify window.chat itself, the raw log is sacred
+  - now wrap window.fetchAI: window.fetchAI = async function(systemPrompt) {
+    - var capacity = parseInt of the id compact-threshold input value, fallback 500000 when NaN
+    - estimate tokens of systemPrompt plus every message content in window.chat; when the estimate reaches 80 percent of capacity (never 100, compaction itself needs free room to run), emit status compacting... and await window.compactChat()
+    - build the view: when window.chatSummary exists, var realChat = window.chat; window.chat = [{ role: 'system', content: '<summary of earlier conversation>\n' %2B window.chatSummary.text %2B '\n</summary>' }].concat(realChat.slice(window.chatSummary.upTo))
+    - var out = await prevFetchCompact(systemPrompt)
+    - restore: when a view was swapped in, window.chat = realChat
+    - return out
+  - add a code comment: compact-threshold is the models total capacity, trigger fires at 80 percent of it, chunks are 40 percent of it, the raw tail is 10 percent of it, the raw chat array is never mutated so deleting window.chatSummary rewinds time
+  - BE HYPER AWARE OF PROMISES: read() and fetch() return promises, every async step must be awaited, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
 &w
