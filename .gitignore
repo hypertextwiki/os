@@ -1,6 +1,7 @@
 node_modules
 dist
 .env
+.wrangler
 public/data/*
 !public/data/index.json
 data/*

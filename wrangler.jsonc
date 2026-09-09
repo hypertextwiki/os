@@ -1,0 +1,36 @@
+{
+  // QRx on Cloudflare — a single Worker serves the kernel as a static asset
+  // and implements the /read, /write, /data/index.json, and /stream endpoints
+  // against Workers KV. No resource IDs are committed: `wrangler deploy`
+  // auto-provisions the KV namespace on first run and links it to this binding.
+  "name": "qrx",
+  "main": "workers/cloudflare.js",
+  "compatibility_date": "2025-09-01",
+
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // Deep links like /wiki serve index.html with a 200 — no 404.html hack.
+    "not_found_handling": "single-page-application",
+    // Only API routes invoke the Worker; page views are served free from the edge.
+    "run_worker_first": ["/read", "/write", "/data/*", "/stream"]
+  },
+
+  "kv_namespaces": [
+    {
+      // The entire dataverse: keys are "namespace/path/to/file".
+      "binding": "DATA"
+    }
+  ],
+
+  "vars": {
+    // Comma-separated namespaces readable by anyone via /read.
+    // 'main' and 'cache' are always included regardless of this setting.
+    "QRX_PUBLIC_NAMESPACES": "main,wiki,cache",
+    // Comma-separated namespaces readable only with a valid SYNC_KEY.
+    "QRX_PRIVATE_NAMESPACES": ""
+  }
+
+  // QRX_SYNC_KEY is a secret, not a var — set it with:
+  //   wrangler secret put QRX_SYNC_KEY
+}

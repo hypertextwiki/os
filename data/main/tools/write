@@ -1,0 +1,22 @@
+
+
+/* write - create or overwrite a file. INPUT: the first line is the path, a bare name like todo.txt for the current namespace or namespace#filename like oz#todo.txt for another namespace, every line after the first line is the file content */
+try {
+  const lines = INPUT.split('\n');
+  const path = lines[0].trim();
+  const content = lines.slice(1).join('\n');
+  if (!path) return 'Error: no file path provided';
+  const hashIndex = path.indexOf('#');
+  let namespace, filename;
+  if (hashIndex !== -1) {
+    namespace = path.substring(0, hashIndex) || undefined;
+    filename = path.substring(hashIndex + 1);
+  } else {
+    namespace = undefined;
+    filename = path;
+  }
+  await write(content, filename, namespace);
+  return `Wrote ${content.length} characters to ${path}`;
+} catch (e) {
+  return `Error: ${e.message}`;
+}
