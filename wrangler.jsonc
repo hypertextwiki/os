@@ -1,36 +1,35 @@
 {
-  // QRx on Cloudflare — a single Worker serves the kernel as a static asset
-  // and implements the /read, /write, /data/index.json, and /stream endpoints
-  // against Workers KV. No resource IDs are committed: `wrangler deploy`
-  // auto-provisions the KV namespace on first run and links it to this binding.
   "name": "qrx",
   "main": "workers/cloudflare.js",
   "compatibility_date": "2025-09-01",
-
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
-    // Deep links like /wiki serve index.html with a 200 — no 404.html hack.
     "not_found_handling": "single-page-application",
-    // Only API routes invoke the Worker; page views are served free from the edge.
     "run_worker_first": ["/read", "/write", "/data/*", "/stream"]
   },
-
-  "kv_namespaces": [
+  // No database_id: Wrangler auto-provisions "qrx" on first deploy.
+  // D1 free tier: 5 GB storage, 5M rows read/day, 100k rows written/day —
+  // hard-capped (never bills), no credit card required.
+  // migrations_dir lives on the binding — this is where wrangler d1
+  // migrations apply looks for the SQL files.
+  "d1_databases": [
     {
-      // The entire dataverse: keys are "namespace/path/to/file".
-      "binding": "DATA"
+      "binding": "DB",
+      "database_name": "qrx",
+      "migrations_dir": "migrations"
     }
   ],
-
   "vars": {
-    // Comma-separated namespaces readable by anyone via /read.
-    // 'main' and 'cache' are always included regardless of this setting.
-    "QRX_PUBLIC_NAMESPACES": "main,wiki,cache",
-    // Comma-separated namespaces readable only with a valid SYNC_KEY.
-    "QRX_PRIVATE_NAMESPACES": ""
+    // Public namespaces are served (cached) to anonymous visitors and baked
+    // into assets at build time. Private namespaces are SYNC_KEY-only, never
+    // baked, never cached. Unlisted = private by default for reads.
+    "QRX_PUBLIC_NAMESPACES": "main,wiki,cache,reddit",
+    "QRX_PRIVATE_NAMESPACES": "",
+    // How long anonymous reads are remembered at the edge, in seconds.
+    // Writes purge what they can; this TTL is the backstop for the edge
+    // locations a purge can't reach. Lower = fresher for strangers,
+    // higher = cheaper under load. Default: 1 day.
+    "CACHE_TTL_SECONDS": "86400"
   }
-
-  // QRX_SYNC_KEY is a secret, not a var — set it with:
-  //   wrangler secret put QRX_SYNC_KEY
 }
