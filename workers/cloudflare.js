@@ -17,8 +17,12 @@
  *   GET  /stream                    -> SSE heartbeat (placeholder until Durable Objects fan-out)
  *   GET  /*                         -> static assets from dist/, SPA fallback to index.html
  *
- * Read order in /read: KV -> static asset -> same for the main fallback.
- * No seeding step exists: the baseline is deployed, not uploaded.
+ * Read model:
+ *   - Anonymous: static assets only. KV is never touched without a SYNC_KEY —
+ *     unauthenticated traffic spends zero KV quota.
+ *   - Key holders: KV first, then static assets, then the main fallback
+ *     (KV, then assets). Private dataverses can live in KV safely because
+ *     only key holders can ever read from KV.
  */
 
 const ALWAYS_PUBLIC = ['main', 'cache']
@@ -79,8 +83,9 @@ async function readStaticAsset(env, request, assetPath) {
 
 /**
  * POST /read — public namespaces readable without auth; everything else
- * requires the SYNC_KEY. Read order per namespace: KV delta, then baked
- * static asset; on a miss, the same two steps against the main namespace.
+ * requires the SYNC_KEY. Anonymous requests read static assets only and
+ * never touch KV. Key holders read KV first, then assets. On a miss, the
+ * same steps repeat against the main namespace.
  */
 async function handleRead(request, env) {
   let body
@@ -92,15 +97,17 @@ async function handleRead(request, env) {
   const { namespace, key } = body || {}
   if (!namespace || key === undefined) return json({ error: 'Missing namespace or key' }, 400)
 
-  if (!authed(request, env) && !isPublic(env, namespace)) {
+  const isAuthed = authed(request, env)
+  if (!isAuthed && !isPublic(env, namespace)) {
     return json({ error: 'Namespace not in allowlist' }, 404)
   }
 
-  let value = await env.DATA.get(`${namespace}/${key}`)
+  let value = null
+  if (isAuthed) value = await env.DATA.get(`${namespace}/${key}`)
   if (value === null) value = await readStaticAsset(env, request, `/data/${namespace}/${key}`)
 
   if (value === null && namespace.toLowerCase() !== 'main') {
-    value = await env.DATA.get(`main/${key}`)
+    if (isAuthed) value = await env.DATA.get(`main/${key}`)
     if (value === null) value = await readStaticAsset(env, request, `/data/main/${key}`)
   }
 
@@ -130,14 +137,18 @@ async function handleWrite(request, env) {
 }
 
 /**
- * GET /data/index.json — the baked static index (public baseline) unioned
- * with live KV deltas in public namespaces.
+ * GET /data/index.json — anonymous: the baked static index only (zero KV ops).
+ * Key holders: static index unioned with live KV deltas in public namespaces.
  * GET /data/index.private.json — KV only (private namespaces are never
  * baked into assets), SYNC_KEY required.
  */
 async function handleIndex(request, env, privateOnly) {
   if (privateOnly && !authed(request, env)) {
     return json({ error: 'Unauthorized' }, 401)
+  }
+  if (!privateOnly && !authed(request, env)) {
+    const staticRaw = await readStaticAsset(env, request, '/data/index.json')
+    return json(staticRaw ? JSON.parse(staticRaw) : [])
   }
   const kvKeys = (await listAllKeys(env)).filter((k) => {
     const ns = k.split('/')[0]

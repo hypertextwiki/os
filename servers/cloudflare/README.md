@@ -10,7 +10,12 @@ Storage model — the same three layers as every other deployment target, mapped
 - **Deltas = KV.** The `DATA` namespace only ever holds what was written through `/write`. KV reads override the static baseline; KV writes are the only thing that spends the free tier's 1,000 writes/day budget.
 - **IndexedDB = cache.** Unchanged — the browser mirrors what it reads, works offline.
 
-Read order in `/read`: KV → baked asset → same two steps against `main`. `/data/index.json` is the union of the baked index and live KV deltas (public namespaces only). Private namespaces are never baked into assets; they exist only as KV deltas, readable solely with the SYNC_KEY.
+Read model — KV is key-holders-only:
+
+- **Anonymous:** static assets only. `/read` on public namespaces serves the baked files and never touches KV; `/data/index.json` returns the baked index without a KV list. Unauthenticated traffic spends zero KV quota, and no visitor data ever enters your KV — there is nothing of theirs to hold.
+- **Key holders:** `/read` checks KV first, then assets, then the `main` fallback (KV, then assets); `/data/index.json` unions the baked index with live KV deltas. Because only key holders can ever read from KV, private dataverses can live there safely — readable by you alone, invisible to everyone else.
+
+Writes are KV deltas (`/write`, SYNC_KEY required) and are the only thing that spends the free tier's 1,000 writes/day budget.
 
 ### First deploy
 
