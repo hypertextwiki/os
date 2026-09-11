@@ -761,3 +761,173 @@ window.addEventListener('keydown', function(e) {
 });
 </script>
 
+<script>
+window.EMPTY_PIXEL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=";
+window.b64ToBlob = async function(b64, mime) {
+  var response = await fetch('data:' + mime + ';base64,' + b64);
+  return await response.blob();
+};
+window.emptyPixelBlob = async function() {
+  var response = await fetch(window.EMPTY_PIXEL);
+  return await response.blob();
+};
+window.embedMeta = async function(blob, entry) {
+  var metadataText = entry.prompt + '\nModel: ' + entry.model + ', Date: ' + new Date(entry.ts).toISOString();
+  var bmp = await createImageBitmap(blob);
+  var canvas = document.createElement('canvas');
+  canvas.width = bmp.width;
+  canvas.height = bmp.height;
+  var ctx = canvas.getContext('2d');
+  ctx.drawImage(bmp, 0, 0);
+  var jpeg = await new Promise(function(resolve, reject) {
+    canvas.toBlob(function(blob) {
+      if (blob) resolve(blob);
+      else reject(new Error('toBlob failed'));
+    }, 'image/jpeg', 0.92);
+  });
+  var jpegBytes = await jpeg.arrayBuffer();
+  var jpegView = new Uint8Array(jpegBytes);
+  var encoder = new TextEncoder();
+  var textBytes = encoder.encode(metadataText);
+  if (textBytes.length > 65533) {
+    textBytes = textBytes.slice(0, 65533);
+  }
+  var seg = new Uint8Array(4 + textBytes.length);
+  seg[0] = 0xFF;
+  seg[1] = 0xFE;
+  var len = textBytes.length + 2;
+  seg[2] = (len >> 8) & 0xFF;
+  seg[3] = len & 0xFF;
+  seg.set(textBytes, 4);
+  var newBytes = new Uint8Array(2 + seg.length + (jpegView.length - 2));
+  newBytes.set(jpegView.subarray(0, 2), 0);
+  newBytes.set(seg, 2);
+  newBytes.set(jpegView.subarray(2), 2 + seg.length);
+  return new Blob([newBytes], { type: 'image/jpeg' });
+};
+window.fileNameFor = function(entry) {
+  var d = new Date(entry.ts);
+  var year = String(d.getFullYear()).slice(-2);
+  var month = String(d.getMonth() + 1).padStart(2, '0');
+  var day = String(d.getDate()).padStart(2, '0');
+  var hours = String(d.getHours()).padStart(2, '0');
+  var minutes = String(d.getMinutes()).padStart(2, '0');
+  var seconds = String(d.getSeconds()).padStart(2, '0');
+  var dateStr = year + month + day + '-' + hours + minutes + seconds;
+  var words = entry.prompt.trim().split(/\s+/).slice(0, 10).map(function(w) {
+    return w.toLowerCase().replace(/[^a-z0-9]/g, '');
+  }).join('-');
+  if (words === '') words = 'prompt';
+  return dateStr + '-' + words + '.jpg';
+};
+window.saveTarget = function(folderString, filename) {
+  var hashIndex = folderString.indexOf('#');
+  var ns, folder;
+  if (hashIndex !== -1) {
+    ns = folderString.substring(0, hashIndex);
+    folder = folderString.substring(hashIndex + 1);
+  } else {
+    ns = null;
+    folder = folderString;
+  }
+  return { ns: ns, key: folder + '/' + filename };
+};
+</script>
+
+<script>
+// the filesystem has no delete, unchecking overwrites the file with an empty pixel blob; window.embedMeta from the previous script embeds the prompt and model as a jpeg COM segment so the file carries its own recipe
+
+var saveRow = document.createElement('div');
+saveRow.id = 'img-save-row';
+saveRow.style.display = 'flex';
+saveRow.style.gap = '8px';
+saveRow.style.padding = '8px';
+
+var saveLabel = document.createElement('label');
+saveLabel.textContent = 'save folder';
+var saveInput = document.createElement('input');
+saveInput.id = 'save-folder';
+saveInput.type = 'text';
+var savedFolder = localStorage.getItem('apps_img_sf');
+saveInput.value = savedFolder !== null ? savedFolder : 'private#img';
+saveInput.addEventListener('change', function() {
+  localStorage.setItem('apps_img_sf', saveInput.value);
+});
+saveLabel.appendChild(saveInput);
+saveRow.appendChild(saveLabel);
+
+var header = document.getElementById('img-header');
+header.parentNode.insertBefore(saveRow, header.nextSibling);
+
+window.makeTileControls = function(tile, entry) {
+  var ctrlRow = document.createElement('div');
+  ctrlRow.style.display = 'flex';
+  ctrlRow.style.gap = '4px';
+  ctrlRow.style.alignItems = 'center';
+
+  var dlBtn = document.createElement('button');
+  dlBtn.textContent = '⬇️';
+  dlBtn.title = 'download';
+  dlBtn.addEventListener('click', async function() {
+    var blob = await window.embedMeta(await window.b64ToBlob(entry.b64, entry.media_type), entry);
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = window.fileNameFor(entry);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  });
+
+  var storeLabel = document.createElement('label');
+  storeLabel.textContent = 'store in browser';
+  var storeCheck = document.createElement('input');
+  storeCheck.type = 'checkbox';
+  storeCheck.checked = !!entry.stored;
+  storeCheck.addEventListener('change', async function() {
+    try {
+      if (storeCheck.checked) {
+        var blob = await window.embedMeta(await window.b64ToBlob(entry.b64, entry.media_type), entry);
+        var t = window.saveTarget(document.getElementById('save-folder').value, window.fileNameFor(entry));
+        entry.savedKey = t.key;
+        entry.savedNs = t.ns;
+        if (t.ns !== null) {
+          await write(blob, t.key, t.ns);
+        } else {
+          await write(blob, t.key);
+        }
+        entry.stored = true;
+      } else {
+        var emptyBlob = await window.emptyPixelBlob();
+        if (entry.savedNs !== null) {
+          await write(emptyBlob, entry.savedKey, entry.savedNs);
+        } else {
+          await write(emptyBlob, entry.savedKey);
+        }
+        entry.stored = false;
+      }
+    } catch (err) {
+      document.getElementById('status-bar').innerText = err.message;
+    }
+  });
+  storeLabel.appendChild(storeCheck);
+
+  ctrlRow.appendChild(dlBtn);
+  ctrlRow.appendChild(storeLabel);
+  tile.appendChild(ctrlRow);
+};
+
+if (!window.renderGallery._hasSave) {
+  var prevRenderSave = window.renderGallery;
+  window.renderGallery = function() {
+    prevRenderSave();
+    var gallery = document.getElementById('img-gallery');
+    var children = gallery.children;
+    for (var i = 0; i < children.length; i++) {
+      var tile = children[i];
+      window.makeTileControls(tile, window.imgState.results[i]);
+    }
+  };
+  window.renderGallery._hasSave = true;
+}
+</script>

@@ -271,7 +271,8 @@ createServer(async (req, res) => {
     req.on('data', chunk => body += chunk.toString())
     req.on('end', async () => {
       try {
-        const { namespace, key, value, clientId } = JSON.parse(body)
+        // Add 'encoding' to the destructured payload
+        const { namespace, key, value, clientId, encoding } = JSON.parse(body)
         if (SECRET && req.headers.authorization !== SECRET) {
           return res.writeHead(401).end(JSON.stringify({ error: 'Unauthorized' }))
         }
@@ -279,7 +280,14 @@ createServer(async (req, res) => {
         const targetPath = resolve(join(DATA_DIR, namespace, fsKey))
         if (!targetPath.startsWith(DATA_DIR)) throw new Error('Path traversal blocked')
         await mkdir(dirname(targetPath), { recursive: true })
-        await writeFile(targetPath, value || '')
+
+        // Handle binary vs text
+        let dataToWrite = value || '';
+        if (encoding === 'base64') {
+          dataToWrite = Buffer.from(value, 'base64');
+        }
+
+        await writeFile(targetPath, dataToWrite)
         await updateDataIndex()
         // Notify all SSE subscribers of the write so clients can react immediately
         const msg = 'data: ' + JSON.stringify({ namespace, key, clientId }) + '\n\n'
@@ -305,30 +313,65 @@ createServer(async (req, res) => {
     req.on('data', chunk => body += chunk.toString())
     req.on('end', async () => {
       try {
-        const { namespace, key } = JSON.parse(body)
+        const {
+          namespace,
+          key
+        } = JSON.parse(body)
         const hasValidKey = SECRET && req.headers.authorization === SECRET
         if (!hasValidKey && !isNamespaceAllowed(namespace)) {
-          return res.writeHead(404).end(JSON.stringify({ error: 'Namespace not in allowlist' }))
+          return res.writeHead(404).end(JSON.stringify({
+            error: 'Namespace not in allowlist'
+          }))
         }
         const fsKey = toFsKey(key)
         let targetPath = resolve(join(DATA_DIR, namespace, fsKey))
         if (!targetPath.startsWith(DATA_DIR)) throw new Error('Path traversal blocked')
-        let data
+        let buffer
         try {
-          data = await readFile(targetPath, 'utf-8')
+          // Read as raw Buffer, NOT 'utf-8'
+          buffer = await readFile(targetPath)
         } catch {
-          // Fallback: if key isn't in the requested namespace, try main
           if (namespace !== 'main') {
             targetPath = resolve(join(DATA_DIR, 'main', fsKey))
             if (!targetPath.startsWith(DATA_DIR)) throw new Error('Path traversal blocked')
-            data = await readFile(targetPath, 'utf-8')
+            buffer = await readFile(targetPath)
           } else {
             throw new Error('Not found')
           }
         }
-        res.writeHead(200).end(JSON.stringify({ value: data }))
+
+        // Detect if binary (contains null bytes or invalid utf-8)
+        let isBinary = false;
+        for (let i = 0; i < Math.min(buffer.length, 8192); i++) {
+          if (buffer[i] === 0) {
+            isBinary = true;
+            break;
+          }
+        }
+        if (!isBinary) {
+          try {
+            new TextDecoder('utf-8', {
+              fatal: true
+            }).decode(buffer);
+          } catch (e) {
+            isBinary = true;
+          }
+        }
+
+        if (isBinary) {
+          res.writeHead(200).end(JSON.stringify({
+            value: buffer.toString('base64'),
+            encoding: 'base64'
+          }))
+        } else {
+          res.writeHead(200).end(JSON.stringify({
+            value: buffer.toString('utf-8')
+          }))
+        }
       } catch {
-        res.writeHead(404).end(JSON.stringify({ error: 'Not found' }))
+        res.writeHead(404).end(JSON.stringify({
+          error: 'Not found'
+        }))
       }
     })
     return
