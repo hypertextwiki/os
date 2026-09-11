@@ -1,0 +1,29 @@
+
+
+/* list-files - list the names of files that exist so you can discover and choose files. INPUT: empty for all files in the current namespace, a prefix like apps/ to filter, docs# for all files in namespace docs, docs#apps/ for a prefix in namespace docs */
+try {
+  let input = INPUT.trim();
+  let hashIndex = input.indexOf('#');
+  let namespace, prefix;
+  if (hashIndex === -1) {
+    namespace = undefined;
+    prefix = input;
+  } else {
+    namespace = input.slice(0, hashIndex);
+    prefix = input.slice(hashIndex + 1);
+  }
+  let targetDb = namespace ? await getDB(namespace) : db;
+  let matchedKeys;
+  if (!prefix) {
+    matchedKeys = await keys(undefined, targetDb);
+  } else {
+    matchedKeys = await keys(IDBKeyRange.bound(prefix, prefix + '\uffff'), targetDb);
+  }
+  if (!matchedKeys || matchedKeys.length === 0) {
+    return "No files found: " + input;
+  }
+  matchedKeys.sort();
+  return matchedKeys.join('\n');
+} catch (e) {
+  return "Error: " + e.message;
+}

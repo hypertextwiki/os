@@ -1,0 +1,83 @@
+
+
+if(window._bootSync)return;window._bootSync=true;
+(async function(){
+  const originalWrite = window.write;
+  const originalRead = window.read;
+  const QRX_URL = localStorage.getItem('QRX_URL') || location.origin;
+  const SYNC_KEY = localStorage.getItem('SYNC_KEY');
+  const CLIENT_ID = Math.random().toString(36).slice(2);
+  window.QRX_URL = QRX_URL;
+  window.SYNC_KEY = SYNC_KEY;
+  window.CLIENT_ID = CLIENT_ID;
+
+  function resolveNamespace(d) {
+    if (d && typeof d === 'object' && 'name' in d) return d.name;
+    if (d === undefined || d === null) return window.DB;
+    return d;
+  }
+  function resolveKey(k) {
+    return k || window.filename;
+  }
+
+  window.write = function(v, k, d, n) {
+    const ns = resolveNamespace(d);
+    const key = resolveKey(k);
+    const result = originalWrite ? originalWrite(v, k, d, n) : undefined;
+    if (v instanceof Blob) {
+      const reader = new FileReader();
+      reader.readAsDataURL(v);
+      reader.onload = () => {
+        const base64 = reader.result.split(',')[1];
+        const body = JSON.stringify({ namespace: ns, key, value: base64, encoding: 'base64', clientId: window.CLIENT_ID });
+        fetch(QRX_URL + '/write', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': SYNC_KEY }, body }).catch(() => {});
+      };
+      reader.onerror = () => {};
+    } else {
+      const body = JSON.stringify({ namespace: ns, key, value: v, encoding: 'utf8', clientId: window.CLIENT_ID });
+      fetch(QRX_URL + '/write', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': SYNC_KEY }, body }).catch(() => {});
+    }
+    return result;
+  };
+
+  window.read = async function(k, d) {
+    const ns = resolveNamespace(d);
+    const key = resolveKey(k);
+    try {
+      const resp = await fetch(QRX_URL + '/read', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': SYNC_KEY }, body: JSON.stringify({ namespace: ns, key }) });
+      const data = await resp.json();
+      if (data && data.value !== undefined && data.value !== null) {
+        if (data.encoding === 'base64') {
+          const blobResp = await fetch('data:application/octet-stream;base64,' + data.value);
+          const blob = await blobResp.blob();
+          if (originalWrite) originalWrite(blob, k, d);
+          return blob;
+        } else if (typeof data.value === 'string') {
+          if (originalWrite) originalWrite(data.value, k, d);
+          return data.value;
+        }
+      }
+    } catch (e) {}
+    return originalRead ? originalRead(k, d) : undefined;
+  };
+})();
+
+(function(){
+  if(!window.syncBus) window.syncBus = new BroadcastChannel('qrx_sync');
+  window.syncBus.onmessage = function(ev){
+    var data = ev.data;
+    if(data && data.namespace === DB && data.key === filename && data.clientId !== window.CLIENT_ID){
+      if(typeof run === 'function') run();
+    }
+  };
+  if(window === window.top && !window.top.qrx_sse){
+    window.top.qrx_sse = true;
+    var es = new EventSource(window.QRX_URL + '/stream?auth=' + window.SYNC_KEY);
+    es.onmessage = function(ev){
+      try{
+        var obj = JSON.parse(ev.data);
+        window.syncBus.postMessage(obj);
+      }catch(e){}
+    };
+  }
+})();

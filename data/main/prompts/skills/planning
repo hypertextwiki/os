@@ -1,0 +1,9 @@
+#skills/planning?e&w&p=TASK: Write a markdown skill file that teaches an agent how to plan its work
+  - FORMAT: markdown only, no HTML, no code fences around the whole file
+  - Line 1 MUST be a single block comment in this exact style: /* planning - how to break a task into steps and track progress in your plan file */
+  - Teach this workflow: first read your plan file, if the task needs more than 2 steps write a short checklist into the plan file with the write tool before starting, then work one item at a time
+  - Teach: after finishing an item, rewrite the plan file with that item checked off, and when reality diverges from the plan, rewrite it instead of forcing the old one
+  - Teach: keep the plan under 10 items, each item one line, and delete the plan file with the delete tool when the task is fully done
+  - Teach: the plan file is your memory across context compaction, the chat history will be summarized but the file survives, so anything you must not forget goes in the file
+  - OUTPUT: only the markdown file content, nothing else
+&w

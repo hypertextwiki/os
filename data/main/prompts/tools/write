@@ -1,0 +1,16 @@
+#tools/write?e&w&c=src&p=TASK: Write the complete tool file for the agent tool named write
+  - PURPOSE: This file is a tool the chat agent calls to create or overwrite a file in any namespace
+  - FORMAT: Raw JavaScript only, no script tags, no HTML, no markdown fences, no explanation
+  - Line 1 MUST be one single block comment in this exact style: /* write - create or overwrite a file. INPUT: the first line is the path, a bare name like todo.txt for the current namespace or namespace%23filename like docs%23todo.txt for another namespace, every line after the first line is the file content */
+  - The code you write IS the body of an async function whose only argument INPUT is a raw string, write top level statements ONLY, do NOT define a function, do NOT wrap the code in anything
+  - The kernel global write(value, key, database) is already in scope and returns a Promise, call it directly, NEVER declare var write or shadow any kernel global
+  - STEP 1: start one try block
+  - STEP 2: split INPUT into lines, the first line trimmed is the path, every line after the first joined back with newlines is the content
+  - STEP 3: if the path is empty return the string Error: no file path provided
+  - STEP 4: find the first %23 in the path, everything before it is the namespace, everything after it is the filename, if there is no %23 the namespace is undefined and the whole path is the filename
+  - STEP 5: await write(content, filename, namespace), an undefined namespace writes to the current namespace, BE HYPER AWARE OF PROMISES
+  - STEP 6: return the string Wrote followed by the content length in characters and the path
+  - Close the try with a catch that returns the string Error: followed by the error message
+  - Never throw, always return a string so the agent loop can continue
+  - OUTPUT: only the raw JavaScript code, nothing else
+&w

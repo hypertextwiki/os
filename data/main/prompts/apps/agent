@@ -1,0 +1,242 @@
+#apps/agent?e&w&p=TASK: output HTML wireframe for a chat application
+  - your output is injected into an existing main element with id A that already exists on the page, do NOT create a main element, do NOT create any element with id A
+  - style the existing main id A with css: width 100vw, height 100vh, margin 0, padding 0, background %23ffffff, overflow hidden
+  - basic css reset: box-sizing border-box for all elements, margin 0 on body
+  - root container: div id chat-app, display flex, flex-direction column, width 100vw, height 100vh, font-family monospace
+  - header: div id chat-header, vertical flex layout, gap 6px, padding 8px, background %23f5f5f5, border-bottom 1px solid %23cccccc
+    - row 1: div id chat-config-row1, horizontal flex, gap 8px, three labeled fields each flex 1: text input id model-name with label model, text input id model-host with label host, password input id api-key with label api key
+    - row 2: div id chat-config-row2, horizontal flex, gap 8px, five labeled fields each flex 1: text input id compact-threshold with label compact tokens, text input id system-file with label system file, text input id context-files with label context files, text input id tools-folder with label tools folder, text input id skills-folder with label skills folder
+  - messages area: div id chat-messages, flex 1, overflow-y auto, padding 12px, background %23ffffff
+  - define message css classes now, they get rendered by javascript later:
+    - .msg base class: white-space pre-wrap, word-break break-word, margin-bottom 12px, padding 8px, border 1px solid %23dddddd
+    - .msg.user: background %23eef4ff
+    - .msg.assistant: background %23f6fff0
+    - .msg.tool: background %23fff8e6, font-size 0.85em
+    - .msg.error: background %23ffecec, color %23a00000
+    - .msg.marker: text-align center, color %23777777, border none, font-size 0.8em
+  - status bar: div id status-bar, padding 4px 8px, font-size 0.8em, color %23777777, border-top 1px solid %23eeeeee, initial text idle
+  - footer: div id chat-footer, horizontal flex, gap 8px, padding 8px, background %23f5f5f5, border-top 1px solid %23cccccc
+    - textarea id user-input, flex 1, resize vertical, min-height 48px
+    - button id submit-btn with label Send
+    - button id stop-btn with label Stop
+  - NO JAVASCRIPT
+  - DONT INCLUDE html/head/body tags just the wireframe
+&w&a=1&p=TASK: output a SCRIPT tag that populates the config inputs and creates the global chat state
+  - for each config input, read its localStorage key and set the input value, using the default when the key is absent:
+    - id model-name from key m
+    - id model-host from key h
+    - id api-key from key k
+    - id compact-threshold from key ct, default 500000
+    - id system-file from key sf, default empty
+    - id context-files from key cf, default empty
+    - id tools-folder from key tf, default tools/
+    - id skills-folder from key kf, default skills/
+  - add a change listener on each of these inputs that writes its value back to its own localStorage key
+  - create global array: window.chat = []
+  - create global string: window.agentPlan = "Pending initialization."
+  - create global object: window.agentScratchpad = {}
+  - create global boolean: window.stopAgent = false
+  - create global: window.chatSummary = null (compaction checkpoint, used by a later script)
+  - create global: window.abortCtrl = null (in-flight request controller, used by a later script)
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that creates the global event bus for the chat
+  - create global object window.chatEvents with an internal handlers object and exactly two functions:
+    - on(name, fn): push fn onto handlers[name], creating the array if it is missing
+    - emit(name, payload): call every fn registered under name with payload, each call wrapped in its own try/catch so a broken subscriber can never break the emitter
+  - the fixed event vocabulary is: user, delta, assistant, tool_call, tool_result, compact, plan, status, error, done
+  - register one built-in subscriber per event name that console.logs the event name and payload, for debugging
+  - add a code comment: all later scripts communicate ONLY through window.chatEvents and never touch the DOM directly
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that renders chat events into the messages area
+  - this script only subscribes to window.chatEvents, no other script calls it directly
+  - helper nearBottom(): true when id chat-messages scrollTop %2B clientHeight is within 40px of scrollHeight
+  - helper appendMsg(cssClass, text): remember nearBottom() before appending, create a div with classes msg and cssClass, append a text node holding the text, append the div to id chat-messages, scroll chat-messages to its bottom only when it was at the bottom, return the div
+  - keep a module-level var streamDiv = null for the open assistant message
+  - subscribe user: appendMsg('user', payload)
+  - subscribe delta: if streamDiv is null set streamDiv = appendMsg('assistant', ''), then append the payload as a text node to streamDiv, scroll only when nearBottom()
+  - subscribe assistant: if streamDiv is still null (no streamed chunks arrived) appendMsg('assistant', payload), then set streamDiv = null
+  - subscribe tool_call: appendMsg('tool', 'tool call: ' %2B payload)
+  - subscribe tool_result: appendMsg('tool', 'result: ' %2B payload)
+  - subscribe compact: appendMsg('marker', '--- context compacted: ' %2B payload %2B ' ---')
+  - subscribe plan: appendMsg('marker', 'plan: ' %2B payload)
+  - subscribe error: appendMsg('error', String(payload))
+  - subscribe status: set innerText of id status-bar to String(payload)
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&c=src&p=TASK: output a SCRIPT tag with the streaming LLM fetch helper and the basic chat send path
+  - the attached CONTEXT is the kernel source, use its gen function as the reference for the request shape
+  - create global async function window.fetchAI(systemPrompt):
+    - read model from id model-name, host from id model-host, apikey from id api-key, and save the three values to localStorage keys m, h, k
+    - build the messages array: first item { role: 'system', content: systemPrompt }, concatenated with window.chat
+    - window.abortCtrl = new AbortController()
+    - fetch host with method POST, header Content-Type application/json, header Authorization Bearer plus the apikey only when apikey is non-empty, signal window.abortCtrl.signal, body JSON.stringify({ model: model, messages: messages, stream: true })
+    - strictly follow the standard openai streaming schema, do NOT include any google specific edge cases
+    - if the response is not ok: emit error with 'HTTP ' %2B response.status and return ''
+    - otherwise read response.body with getReader and TextDecoder: buffer decoded text, split into lines, every line starting with 'data: ' gets JSON.parsed unless it is '[DONE]', take choices[0].delta.content, append it to a full text accumulator and emit delta with the chunk
+    - wrap the whole function body in try/catch: when the error is an abort emit status stopped, otherwise emit error with err.message, and always return whatever text accumulated
+  - create global async function window.sendChat(text):
+    - push { role: 'user', content: text } onto window.chat and emit user with text
+    - build the system prompt: when id system-file is non-empty do var sf = await read(that file name) and use sf when truthy, otherwise localStorage.getItem('s'), otherwise 'You are a helpful assistant.'
+    - emit status thinking...
+    - var reply = await window.fetchAI(systemPrompt)
+    - push { role: 'assistant', content: reply } onto window.chat, emit assistant with reply, emit status idle, emit done
+  - bind click on id submit-btn and Ctrl%2BEnter keydown on id user-input to: when the textarea value is non-empty after trim, call window.sendChat with the value and clear the textarea
+  - bind click on id stop-btn to: set window.stopAgent = true, and when window.abortCtrl exists call window.abortCtrl.abort()
+  - BE HYPER AWARE OF PROMISES: read() and fetch() return promises, every async step must be awaited or .then()ed, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag with the reply parsers for the agent loop
+  - create one script-level helper function clean(raw) that both parsers below call on every captured text:
+    - trim the input, then LOOP: while the text ends with any of these exact literals — </ACTION> or </ACTION>> or </ANSWER> or </ANSWER>> or </tool_input> or </invoke> or </parameter> or </tool_call> or </function_calls> — cut that final tag off and trim again, repeat until none match
+    - the loop matters because the model sometimes double-closes or stacks its envelope tags and a single pass leaves junk behind, the junk then becomes part of a file name or file content
+    - NEVER strip a generic closing-tag pattern with a regex — real file content can legitimately end with a closing tag like </html> and a generic strip would eat it
+  - create global function window.parseAction(text) with two stages:
+    - STAGE 1 primary: match regex /<<ACTION:\s*([^\>]\%2B)>>\n([\s\S]\%2A\%3F)(\%3F=<<|$)/, when matched return { name: match[1].trim(), input: clean(match[2]) }
+    - STAGE 2 native fallback, only when stage 1 misses: the model sometimes emits its own native tool envelope instead — match /<invoke name="([^"]\%2B)">/ once, when it misses return null
+    - when the invoke matched: var rest = the text after the match, cut at the next <invoke when one exists
+    - collect every parameter value from rest with the global regex /<parameter name="[^"]\%2B">([\s\S]\%2A\%3F)<\/parameter>/g in document order
+    - build the input: one parameter becomes its value, several parameters become their values joined with single newlines in document order so a path parameter followed by a content parameter lands as first line path then content — the exact INPUT contract of the write tool — zero parameters means the empty string
+    - return { name: the invoke name trimmed, input: clean(the built input) }
+  - create global function window.parseAnswer(text): match regex /<<ANSWER>>\n([\s\S]\%2A\%3F)(\%3F=<<|$)/, when matched return clean(match[1]) EVEN WHEN IT IS EMPTY OR WHITESPACE, otherwise return null; an empty answer is still a valid termination and must never be treated as a failure
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag with the system prompt builder for the agent loop
+  - create global async function window.buildAgentPrompt(): resolve the base system prompt (system-file input via await read, then localStorage key s, then a default), then append these sections in order:
+    - OUTPUT FORMAT rules, short and absolute: every single reply MUST end with exactly one of the two tags; to use a tool output <<ACTION: tool_name>> then the input on the next line; to finish output <<ANSWER>> then the final message on the next line; NEVER use XML or <tool_call> tags; NEVER narrate tool use in plain prose; the <<ACTION>> tag is the only way a tool runs; a reply with no tag is a format error
+    - a concrete EXAMPLE block showing one full well-formed finishing reply: <<ANSWER>> on its own line followed by an example sentence on the next line
+    - AVAILABLE TOOLS: when window.getActiveToolsString exists, await it and include the result, otherwise the line NO TOOLS AVAILABLE, ANSWER DIRECTLY
+    - CURRENT PLAN: window.agentPlan
+    - WORKING MEMORY: every key of window.agentScratchpad rendered as a MEMORY POINTER section, or the line [Empty] when there are none
+  - BE HYPER AWARE OF PROMISES: read() returns a promise, every async step must be awaited, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag with the agent reasoning loop that upgrades the chat into an agent
+  - create global async function window.runAgent(userMessage):
+    - push { role: 'user', content: userMessage } onto window.chat and emit user with userMessage
+    - var errorCount = 0 and var formatFails = 0, then start a while(true) loop
+    - inside the loop, wrapped in try/catch:
+      - var systemPrompt = await window.buildAgentPrompt()
+      - when window.stopAgent is true, append the line USER OVERRIDE: Stop executing tools. Output <<ANSWER>>. to systemPrompt and reset window.stopAgent to false
+      - emit status thinking...
+      - var aiResponse = await window.fetchAI(systemPrompt)
+      - emit assistant with aiResponse, push { role: 'assistant', content: aiResponse } onto window.chat, emit status idle
+      - var action = window.parseAction(aiResponse)
+      - when action exists AND window.executeTool exists: set formatFails = 0, emit tool_call with action.name, var result = await window.executeTool(action.name, action.input), emit tool_result with result, push { role: 'user', content: 'OBSERVATION:\n' %2B result } onto window.chat, continue the loop
+      - when action exists but window.executeTool does NOT exist: push { role: 'user', content: 'SYSTEM WARNING: no tool executor installed. Answer directly with <<ANSWER>>.' } onto window.chat and continue the loop
+      - var answer = window.parseAnswer(aiResponse)
+      - when answer is NOT null (use an explicit null check, never a truthiness check): emit done with answer and break the loop
+      - fallback when neither matched: formatFails increments; when formatFails reaches 3, emit error with 'model failed the output format 3 times', emit done with aiResponse as a graceful fallback, and break the loop; otherwise push { role: 'user', content: 'SYSTEM WARNING: format error. Your last reply had no usable tag. Reply again and end it one of two ways: <<ACTION: name>> then the tool input on the next line, or <<ANSWER>> then your message on the next line. Put nothing after the input or message.' } onto window.chat and continue the loop
+    - on catch: errorCount increments, emit error with err.message, break the loop when errorCount reaches 7
+  - the window.runAgent function definition ENDS here, everything below is TOP LEVEL script code that runs once when the script loads, NOT part of the function body, do not place it inside the function
+  - rewire the UI from plain chat to agent mode, and this is the critical part: for EACH of the THREE elements id submit-btn, id stop-btn AND id user-input, replace the element with a fresh clone of itself via element.replaceWith(element.cloneNode(true)) so ALL listeners from the previous script are dropped; the textarea is the easy one to forget and it carries a stale Ctrl%2BEnter listener bound to window.sendChat, if it is not cloned the old plain-chat path keeps firing
+  - after cloning, re-fetch all three elements by id and bind: click on submit-btn and Ctrl%2BEnter keydown on user-input call window.runAgent with the trimmed textarea value when non-empty and then clear the textarea; click on stop-btn sets window.stopAgent = true and aborts window.abortCtrl when it exists
+  - keep window.sendChat intact so plain chat stays available as a fallback
+  - BE HYPER AWARE OF PROMISES: read(), fetch() and executeTool() return promises, every async step must be awaited, never let [object Promise] leak into a string
+  - VERIFY: re-read your code and confirm the clone-and-rebind lines sit at the top level of the script, after and outside the window.runAgent definition — if they are inside the function the button stays bound to plain chat and the agent never sees its tools
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag with the dynamic tool loader and executor
+  - tools are plain files stored under the folder named in the id tools-folder input; each tool file starts with a /* description */ comment followed by javascript that receives its arguments as the variable INPUT and returns a string result
+  - helper toolPrefix(): read the id tools-folder input value, trim it, when it does not end with a slash append one, return it
+  - create global async function window.getActiveToolsString():
+    - var prefix = toolPrefix(), var lines = []
+    - var matchedKeys = await keys(IDBKeyRange.bound(prefix, prefix %2B '\uffff'))
+    - loop through matchedKeys: var c = await read(matchedKeys[i]); var desc = 'No description'; when c exists and includes '/*' set desc = c.split('*/')[0].split('/*')[1].trim(); lines.push(matchedKeys[i].slice(prefix.length) %2B ' - ' %2B desc)
+    - return lines joined with newlines, or the string 'No tools found.' when empty
+  - create global async function window.executeTool(toolName, toolInput):
+    - inside a try/catch block:
+      - var prefix = toolPrefix(), var code = await read(toolName)
+      - when code is missing and toolName does not already start with prefix, code = await read(prefix %2B toolName)
+      - when code is still missing throw new Error('Tool not found: ' %2B toolName)
+      - strip a leading /* ... */ comment from code before evaluating
+      - evaluate EXACTLY with this syntax: return await new Function('INPUT', 'return (async () => {' %2B code %2B '})()')(toolInput)
+    - on catch: console.error('Tool Execution Failed:', err) and return the string 'Tool Execution Error: ' %2B err.message so the loop keeps going
+  - tool code runs in kernel scope, so tools can call read, write, keys, and hydrate directly
+  - BE HYPER AWARE OF PROMISES: read() and keys() return promises, every async step must be awaited, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that adds progressive-disclosure skills to the system prompt
+  - CRITICAL CAPTURE RULE: top-level var declarations are globals shared by every script, so capture the old function under a UNIQUE name: var prevBuildSkills = window.buildAgentPrompt; inside the new wrapper call ONLY prevBuildSkills, never window.buildAgentPrompt and never a generic name like prevBuild, another wrapper script will overwrite a generic name and cause infinite recursion
+  - IDEMPOTENCY RULE: before wrapping, when window.buildAgentPrompt._hasSkills is already true, do nothing and end the script; after wrapping, set window.buildAgentPrompt._hasSkills = true, so a duplicated script can never stack two skills wrappers
+  - skills are plain text or markdown files stored under the folder named in the id skills-folder input; each skill file starts with a /* one line description */ comment, and the rest of the file is the full skill body that the model loads on demand
+  - helper skillPrefix(): read the id skills-folder input value, trim it, when it does not end with a slash append one, return it
+  - create global async function window.getSkillsIndex():
+    - var prefix = skillPrefix(), var lines = []
+    - var matchedKeys = await keys(IDBKeyRange.bound(prefix, prefix %2B '\uffff'))
+    - loop through matchedKeys: var c = await read(matchedKeys[i]); var desc = 'No description'; when c exists and includes '/*' set desc = c.split('*/')[0].split('/*')[1].trim(); lines.push(matchedKeys[i] %2B ' - ' %2B desc)
+    - return lines joined with newlines, or an empty string when there are no skills
+    - note: unlike tools, skill lines keep their FULL path including the prefix, because skills get loaded through the read tool which takes a raw path
+  - wrap the existing window.buildAgentPrompt WITHOUT rewriting it: window.buildAgentPrompt = async function() { var p = await prevBuildSkills(); var idx = await window.getSkillsIndex(); when idx is non-empty, p %2B= '\nSKILLS (load before use):\n' %2B idx %2B '\nTo apply a skill, first load its full body with the read tool, then follow its instructions.\n'; return p; }
+  - add a code comment: skills are the cheap context tier, only the one-line descriptions cost tokens every turn, bodies are loaded on demand through the read tool
+  - BE HYPER AWARE OF PROMISES: read() and keys() return promises, every async step must be awaited, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that adds identity files, eager context files, and the wikilink rule to the system prompt
+  - CRITICAL CAPTURE RULE: top-level var declarations are globals shared by every script, so capture the old function under a UNIQUE name: var prevBuildIdentity = window.buildAgentPrompt; inside the new wrapper call ONLY prevBuildIdentity, never window.buildAgentPrompt and never a generic name like prevBuild, another wrapper script will overwrite a generic name and cause infinite recursion
+  - IDEMPOTENCY RULE: before wrapping, when window.buildAgentPrompt._hasIdentity is already true, do nothing and end the script; after wrapping, set window.buildAgentPrompt._hasIdentity = true, so a duplicated script can never stack two identity wrappers
+  - wrap the existing window.buildAgentPrompt WITHOUT rewriting it: window.buildAgentPrompt = async function() { ... }
+  - inside the wrapper:
+    - identity tier, loaded first: var soul = await read('soul'), var user = await read('user'); build an identity string from whichever exist, wrapping each as <soul>...</soul> and <user>...</user> joined with a newline
+    - var p = await prevBuildIdentity(); when the identity string is non-empty, p = identity %2B '\n\n' %2B p so identity always leads the system prompt
+    - wikilink rule: append the line '\nWhen a message contains [[links]], treat each link as a file name in the dataverse and load it with the read tool before answering.'
+    - eager context tier, appended last: read the id context-files input value, split it on commas, trim each entry, drop empties; for each entry var c = await read(entry) and when c exists append '\n<context file="' %2B entry %2B '">\n' %2B c %2B '\n</context>' to p
+    - return p
+  - files that do not exist must be skipped silently and must never throw
+  - add a code comment: soul and user are the identity tier and should stay short, context-files is the eager pay-now tier for large documents, [[links]] are the pay-when-needed tier handled by the read tool
+  - BE HYPER AWARE OF PROMISES: read() returns a promise, every async step must be awaited, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that adds chunked context compaction to the chat
+  - CRITICAL CAPTURE RULE: top-level var declarations are globals shared by every script, so capture the old fetch under a UNIQUE name: var prevFetchCompact = window.fetchAI; inside the new wrapper call ONLY prevFetchCompact, never window.fetchAI and never a generic name, another wrapper script will overwrite a generic name and cause infinite recursion
+  - IDEMPOTENCY RULE: before wrapping, when window.fetchAI._hasCompaction is already true, do nothing and end the script; after wrapping, set window.fetchAI._hasCompaction = true
+  - the id compact-threshold input declares the MODELS TOTAL CONTEXT CAPACITY in tokens, it is not a soft hint: every call the app makes, including internal summarization calls, must fit inside it
+  - create global function window.estimateTokens(text): return Math.ceil of (text length divided by 4) times 1.2, the 1.2 is a safety margin because character-based estimates can undercount
+  - create global async function window.summarizeText(text, instructions): read model, host, apikey from ids model-name, model-host, api-key; make a non-streaming fetch POST to host with Content-Type application/json and Authorization Bearer plus apikey only when non-empty; body is JSON.stringify({ model: model, messages: [{ role: 'system', content: instructions }, { role: 'user', content: text }], stream: false }); return choices[0].message.content; this function never touches window.chat
+  - create global async function window.compactChat():
+    - var capacity = parseInt of the id compact-threshold input value, fallback 500000 when NaN
+    - var maxChunk = Math.floor(capacity times 0.4), so one chunk plus the summarizer instructions plus the models reply all fit inside capacity
+    - walk window.chat BACKWARDS from the end, collecting messages into a raw tail until their estimated tokens reach 10 percent of capacity, always keeping at least the last 2 messages; everything before the tail is the region to compact; when the region is empty, return
+    - var start = window.chatSummary %3F window.chatSummary.upTo : 0; render the region from index start as lines of role colon content into one transcript string; when window.chatSummary exists, prepend its text under a line PREVIOUS SUMMARY so summaries chain
+    - when the transcript estimate fits inside maxChunk: var summary = await window.summarizeText(transcript, 'You are a compaction engine. Summarize this conversation transcript for an agent that will continue it. Preserve with maximum recall: the users goals, every decision made, every fact or file name mentioned, tool results that matter, and all open questions. Discard filler. Output only the summary.')
+    - otherwise MAP: greedily group the region messages into chunks whose estimated tokens stay under maxChunk, never splitting a single message (a message bigger than maxChunk becomes its own chunk), then summarize each chunk one at a time with summarizeText and the same compaction instructions
+    - then REDUCE: join the partial summaries with newlines; while the joined text still exceeds maxChunk, split IT into maxChunk-sized pieces and summarize each piece again; finish with one final summarizeText call on the remaining text using merge instructions: 'Merge these partial summaries into one cohesive summary. Preserve decisions, TODOs, open questions, file names, and constraints. Output only the summary.'
+    - set window.chatSummary = { text: summary, upTo: the index where the raw tail begins }
+    - emit compact with the string start %2B '-' %2B window.chatSummary.upTo %2B ' messages summarized into ' %2B window.estimateTokens(summary) %2B ' tokens'
+    - wrap the whole function in try/catch: on any error emit error with err.message and leave window.chatSummary unchanged, compaction failure must never break the chat
+    - NEVER modify window.chat itself, the raw log is sacred
+  - now wrap window.fetchAI: window.fetchAI = async function(systemPrompt) {
+    - var capacity = parseInt of the id compact-threshold input value, fallback 500000 when NaN
+    - estimate tokens of systemPrompt plus every message content in window.chat; when the estimate reaches 80 percent of capacity (never 100, compaction itself needs free room to run), emit status compacting... and await window.compactChat()
+    - build the view: when window.chatSummary exists, var realChat = window.chat; window.chat = [{ role: 'system', content: '<summary of earlier conversation>\n' %2B window.chatSummary.text %2B '\n</summary>' }].concat(realChat.slice(window.chatSummary.upTo))
+    - var out = await prevFetchCompact(systemPrompt)
+    - restore: when a view was swapped in, window.chat = realChat
+    - return out
+  - add a code comment: compact-threshold is the models total capacity, trigger fires at 80 percent of it, chunks are 40 percent of it, the raw tail is 10 percent of it, the raw chat array is never mutated so deleting window.chatSummary rewinds time
+  - BE HYPER AWARE OF PROMISES: read() and fetch() return promises, every async step must be awaited, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that gives each agent window its own plan file in the memory dataverse and keeps long tasks on track
+  - AGENT ID: on script load, create window.agentId as a hex string — call crypto.getRandomValues on a new Uint8Array(8) and convert each byte to two hex digits — never write it to localStorage or sessionStorage, every window must get its own fresh id
+  - PLAN PATH: this agent's plan file is one single path — the string memory%23agents/ followed by window.agentId followed by /plan — overwritten by each new task, no subfolders
+  - NAMESPACE SPLIT: the kernel globals read(k, d) and write(v, k, d) take the key and the namespace as SEPARATE arguments and never parse %23 themselves — to touch the plan file, split the path at the first %23, use everything after it as the key, and pass the string memory as the namespace argument — this split is ONLY for the plan file, skills and tools are plain filenames like skills/planning
+  - PLAN SECTION: wrap window.buildAgentPrompt with unique capture names and an idempotency flag, never self-call the wrapped name — after calling the original, append at the very END of the prompt exactly these lines:
+    - a line CURRENT PLAN
+    - a line path: followed by the resolved literal plan path, interpolate the real string, never describe it as a formula
+    - a line contents: followed by the current file text, await the read, use the word empty when the file does not exist
+    - a line how to plan: read the file skills/planning with the read tool
+    - a final line REPLY FORMAT: end your reply with <<ACTION: name>> and the input on the next line, or <<ANSWER>> and your message on the next line
+  - the CURRENT PLAN section is the last SECTION in the prompt, followed only by the one REPLY FORMAT line — the full output rules sit in the middle of the prompt where attention is weakest, this line restates them at the strongest position
+  - HEARTBEAT: wrap window.fetchAI with unique capture names and an idempotency flag
+  - keep one module-level number beatSeen starting at 0 — a bookmark for how many user-role messages existed at the last reminder — and one module-level boolean beatPlanned starting false — whether the plan-now reminder has been sent yet
+  - on every call: count ALL user-role messages in window.chat, subtract beatSeen, and treat the difference as how many tool results arrived since the last reminder — do NOT update beatSeen yet
+  - fire when the difference is 3 or more, or when the difference is at least 1 and the newest user-role message reports an error in the loop's own error format, read that format from the loop code in context
+  - only when firing, set beatSeen to the current count — never on any other call, or the difference can never reach 3 and the heartbeat never fires
+  - firing means pushing one short role user message onto window.chat, awaiting the original fetchAI, then removing that message again in a finally block — it exists only inside this one request, emit no events for it so the UI never renders it
+  - the message text while beatPlanned is false: this task is running long — write your plan to the plan path in the system prompt now, one [ ] step per remaining action — and set beatPlanned true when this version fires
+  - the message text once beatPlanned is true: Reminder: check your plan file (path in the system prompt), update it to match reality, then continue
+  - VERIFY: re-read your code and confirm beatSeen updates only when firing, the reminder exists only inside the outgoing request, the plan path is interpolated as a resolved literal string, the id comes from crypto.getRandomValues, and every wrapper follows the house rules
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w

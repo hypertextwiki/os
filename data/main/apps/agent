@@ -1,0 +1,866 @@
+
+
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; }
+#A { width: 100vw; height: 100vh; margin: 0; padding: 0; background: #ffffff; overflow: hidden; }
+#chat-app { display: flex; flex-direction: column; width: 100vw; height: 100vh; font-family: monospace; }
+#chat-header { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: #f5f5f5; border-bottom: 1px solid #cccccc; }
+#chat-config-row1, #chat-config-row2 { display: flex; gap: 8px; }
+#chat-config-row1 > label, #chat-config-row2 > label { flex: 1; }
+#chat-messages { flex: 1; overflow-y: auto; padding: 12px; background: #ffffff; }
+.msg { white-space: pre-wrap; word-break: break-word; margin-bottom: 12px; padding: 8px; border: 1px solid #dddddd; }
+.msg.user { background: #eef4ff; }
+.msg.assistant { background: #f6fff0; }
+.msg.tool { background: #fff8e6; font-size: 0.85em; }
+.msg.error { background: #ffecec; color: #a00000; }
+.msg.marker { text-align: center; color: #777777; border: none; font-size: 0.8em; }
+#status-bar { padding: 4px 8px; font-size: 0.8em; color: #777777; border-top: 1px solid #eeeeee; }
+#chat-footer { display: flex; gap: 8px; padding: 8px; background: #f5f5f5; border-top: 1px solid #cccccc; }
+#user-input { flex: 1; resize: vertical; min-height: 48px; }
+</style>
+<div id="chat-app">
+  <div id="chat-header">
+    <div id="chat-config-row1">
+      <label>model
+        <input type="text" id="model-name">
+      </label>
+      <label>host
+        <input type="text" id="model-host">
+      </label>
+      <label>api key
+        <input type="password" id="api-key">
+      </label>
+    </div>
+    <div id="chat-config-row2">
+      <label>compact tokens
+        <input type="text" id="compact-threshold">
+      </label>
+      <label>system file
+        <input type="text" id="system-file">
+      </label>
+      <label>context files
+        <input type="text" id="context-files">
+      </label>
+      <label>tools folder
+        <input type="text" id="tools-folder">
+      </label>
+      <label>skills folder
+        <input type="text" id="skills-folder">
+      </label>
+    </div>
+  </div>
+  <div id="chat-messages">
+    <!-- messages -->
+  </div>
+  <div id="status-bar">idle</div>
+  <div id="chat-footer">
+    <textarea id="user-input"></textarea>
+    <button id="submit-btn">Send</button>
+    <button id="stop-btn">Stop</button>
+  </div>
+</div>
+
+<script>
+var modelNameInput = document.getElementById('model-name');
+var modelHostInput = document.getElementById('model-host');
+var apiKeyInput = document.getElementById('api-key');
+var compactThresholdInput = document.getElementById('compact-threshold');
+var systemFileInput = document.getElementById('system-file');
+var contextFilesInput = document.getElementById('context-files');
+var toolsFolderInput = document.getElementById('tools-folder');
+var skillsFolderInput = document.getElementById('skills-folder');
+
+function applyConfig(id, key, defaultVal) {
+  var el = document.getElementById(id);
+  var stored = localStorage.getItem(key);
+  if (stored === null) {
+    stored = defaultVal;
+  }
+  el.value = stored;
+  el.addEventListener('change', function() {
+    localStorage.setItem(key, el.value);
+  });
+}
+
+applyConfig('model-name', 'm', '');
+applyConfig('model-host', 'h', '');
+applyConfig('api-key', 'k', '');
+applyConfig('compact-threshold', 'ct', '500000');
+applyConfig('system-file', 'sf', '');
+applyConfig('context-files', 'cf', '');
+applyConfig('tools-folder', 'tf', 'tools/');
+applyConfig('skills-folder', 'kf', 'skills/');
+
+window.chat = [];
+window.agentPlan = "Pending initialization.";
+window.agentScratchpad = {};
+window.stopAgent = false;
+window.chatSummary = null;
+window.abortCtrl = null;
+</script>
+
+<script>
+// all later scripts communicate ONLY through window.chatEvents and never touch the DOM directly
+window.chatEvents = (function() {
+  var handlers = {};
+  var on = function(name, fn) {
+    if (!handlers[name]) handlers[name] = [];
+    handlers[name].push(fn);
+  };
+  var emit = function(name, payload) {
+    var list = handlers[name];
+    if (list) {
+      for (var i = 0; i < list.length; i++) {
+        try {
+          list[i](payload);
+        } catch (e) {
+          console.error('Error in handler for', name, e);
+        }
+      }
+    }
+  };
+  var eventNames = ['user','delta','assistant','tool_call','tool_result','compact','plan','status','error','done'];
+  for (var i = 0; i < eventNames.length; i++) {
+    (function(evt) {
+      on(evt, function(payload) {
+        console.log(evt, payload);
+      });
+    })(eventNames[i]);
+  }
+  return { on: on, emit: emit };
+})();
+</script>
+
+<script>
+var streamDiv = null;
+
+function nearBottom() {
+  var el = document.getElementById('chat-messages');
+  return el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+}
+
+function appendMsg(cssClass, text) {
+  var el = document.getElementById('chat-messages');
+  var wasNearBottom = nearBottom();
+  var div = document.createElement('div');
+  div.className = 'msg ' + cssClass;
+  div.appendChild(document.createTextNode(text));
+  el.appendChild(div);
+  if (wasNearBottom) {
+    el.scrollTop = el.scrollHeight;
+  }
+  return div;
+}
+
+window.chatEvents.on('user', function(payload) {
+  appendMsg('user', payload);
+});
+
+window.chatEvents.on('delta', function(payload) {
+  if (!streamDiv) {
+    streamDiv = appendMsg('assistant', '');
+  }
+  streamDiv.appendChild(document.createTextNode(payload));
+  if (nearBottom()) {
+    var el = document.getElementById('chat-messages');
+    el.scrollTop = el.scrollHeight;
+  }
+});
+
+window.chatEvents.on('assistant', function(payload) {
+  if (!streamDiv) {
+    appendMsg('assistant', payload);
+  }
+  streamDiv = null;
+});
+
+window.chatEvents.on('tool_call', function(payload) {
+  appendMsg('tool', 'tool call: ' + payload);
+});
+
+window.chatEvents.on('tool_result', function(payload) {
+  appendMsg('tool', 'result: ' + payload);
+});
+
+window.chatEvents.on('compact', function(payload) {
+  appendMsg('marker', '--- context compacted: ' + payload + ' ---');
+});
+
+window.chatEvents.on('plan', function(payload) {
+  appendMsg('marker', 'plan: ' + payload);
+});
+
+window.chatEvents.on('error', function(payload) {
+  appendMsg('error', String(payload));
+});
+
+window.chatEvents.on('status', function(payload) {
+  document.getElementById('status-bar').innerText = String(payload);
+});
+</script>
+
+<script>
+window.fetchAI = async function(systemPrompt) {
+  var model = document.getElementById('model-name').value;
+  var host = document.getElementById('model-host').value;
+  var apikey = document.getElementById('api-key').value;
+  localStorage.setItem('m', model);
+  localStorage.setItem('h', host);
+  localStorage.setItem('k', apikey);
+  var messages = [{ role: 'system', content: systemPrompt }].concat(window.chat);
+  window.abortCtrl = new AbortController();
+  var headers = { 'Content-Type': 'application/json' };
+  if (apikey) {
+    headers.Authorization = 'Bearer ' + apikey;
+  }
+  var body = JSON.stringify({ model: model, messages: messages, stream: true });
+  var fullText = '';
+  try {
+    var response = await fetch(host, {
+      method: 'POST',
+      headers: headers,
+      body: body,
+      signal: window.abortCtrl.signal
+    });
+    if (!response.ok) {
+      window.chatEvents.emit('error', 'HTTP ' + response.status);
+      return '';
+    }
+    var reader = response.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+    while (true) {
+      var done = false;
+      var value = await reader.read();
+      done = value.done;
+      if (done) break;
+      buffer += decoder.decode(value.value, { stream: true });
+      var lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (line.startsWith('data: ')) {
+          var data = line.slice(6);
+          if (data === '[DONE]') {
+            done = true;
+            break;
+          }
+          try {
+            var json = JSON.parse(data);
+            var content = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
+            if (content) {
+              fullText += content;
+              window.chatEvents.emit('delta', content);
+            }
+          } catch (e) {
+            // ignore parse errors
+          }
+        }
+      }
+      if (done) break;
+    }
+    return fullText;
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      window.chatEvents.emit('status', 'stopped');
+    } else {
+      window.chatEvents.emit('error', err.message);
+    }
+    return fullText;
+  }
+};
+
+window.sendChat = async function(text) {
+  window.chat.push({ role: 'user', content: text });
+  window.chatEvents.emit('user', text);
+  var systemFile = document.getElementById('system-file').value;
+  var systemPrompt;
+  if (systemFile) {
+    var sf = await read(systemFile);
+    if (sf) {
+      systemPrompt = sf;
+    } else {
+      systemPrompt = localStorage.getItem('s') || 'You are a helpful assistant.';
+    }
+  } else {
+    systemPrompt = localStorage.getItem('s') || 'You are a helpful assistant.';
+  }
+  window.chatEvents.emit('status', 'thinking...');
+  var reply = await window.fetchAI(systemPrompt);
+  window.chat.push({ role: 'assistant', content: reply });
+  window.chatEvents.emit('assistant', reply);
+  window.chatEvents.emit('status', 'idle');
+  window.chatEvents.emit('done', reply);
+};
+
+document.getElementById('submit-btn').addEventListener('click', function() {
+  var input = document.getElementById('user-input');
+  var text = input.value.trim();
+  if (text) {
+    window.sendChat(text);
+    input.value = '';
+  }
+});
+
+document.getElementById('user-input').addEventListener('keydown', function(e) {
+  if (e.ctrlKey && e.key === 'Enter') {
+    var input = document.getElementById('user-input');
+    var text = input.value.trim();
+    if (text) {
+      window.sendChat(text);
+      input.value = '';
+    }
+  }
+});
+
+document.getElementById('stop-btn').addEventListener('click', function() {
+  window.stopAgent = true;
+  if (window.abortCtrl) {
+    window.abortCtrl.abort();
+  }
+});
+</script>
+
+<script>
+function clean(raw) {
+  var text = raw.trim();
+  var tags = ['</ACTION>', '</ACTION>>', '</ANSWER>', '</ANSWER>>', '</tool_input>', '</invoke>', '</parameter>', '</tool_call>', '</function_calls>'];
+  var changed = true;
+  while (changed) {
+    changed = false;
+    for (var i = 0; i < tags.length; i++) {
+      if (text.endsWith(tags[i])) {
+        text = text.slice(0, text.length - tags[i].length).trim();
+        changed = true;
+        break;
+      }
+    }
+  }
+  return text;
+}
+
+window.parseAction = function(text) {
+  var match = /<<ACTION:\s*([^>]+)>>\n([\s\S]*?)(?=<<|$)/.exec(text);
+  if (match) {
+    return { name: match[1].trim(), input: clean(match[2]) };
+  }
+  var invokeMatch = /<invoke name="([^"]+)">/.exec(text);
+  if (!invokeMatch) {
+    return null;
+  }
+  var rest = text.slice(invokeMatch.index + invokeMatch[0].length);
+  var nextInvoke = /<invoke name="/.exec(rest);
+  if (nextInvoke) {
+    rest = rest.slice(0, nextInvoke.index);
+  }
+  var paramRegex = /<parameter name="[^"]+">([\s\S]*?)<\/parameter>/g;
+  var param;
+  var params = [];
+  while ((param = paramRegex.exec(rest)) !== null) {
+    params.push(param[1]);
+  }
+  var input;
+  if (params.length === 0) {
+    input = '';
+  } else if (params.length === 1) {
+    input = params[0];
+  } else {
+    input = params.join('\n');
+  }
+  return { name: invokeMatch[1].trim(), input: clean(input) };
+};
+
+window.parseAnswer = function(text) {
+  var match = /<<ANSWER>>\n([\s\S]*?)(?=<<|$)/.exec(text);
+  if (match) {
+    return clean(match[1]);
+  }
+  return null;
+};
+</script>
+
+<script>
+window.buildAgentPrompt = async function() {
+  var systemFile = document.getElementById('system-file').value;
+  var base;
+  if (systemFile) {
+    base = await read(systemFile);
+  }
+  if (!base) {
+    base = localStorage.getItem('s');
+  }
+  if (!base) {
+    base = 'You are a helpful assistant.';
+  }
+  var prompt = base;
+  prompt += '\n\nOUTPUT FORMAT rules, short and absolute: every single reply MUST end with exactly one of the two tags; to use a tool output <<ACTION: tool_name>> then the input on the next line; to finish output <<ANSWER>> then the final message on the next line; NEVER use XML or <tool_call> tags; NEVER narrate tool use in plain prose; the <<ACTION>> tag is the only way a tool runs; a reply with no tag is a format error';
+  prompt += '\n\nEXAMPLE block showing one full well-formed finishing reply:\n<<ANSWER>>\nThis is an example sentence.';
+  prompt += '\n\nAVAILABLE TOOLS: ';
+  if (window.getActiveToolsString) {
+    prompt += await window.getActiveToolsString();
+  } else {
+    prompt += 'NO TOOLS AVAILABLE, ANSWER DIRECTLY';
+  }
+  prompt += '\n\nCURRENT PLAN: ' + window.agentPlan;
+  prompt += '\n\nWORKING MEMORY: ';
+  var keys = Object.keys(window.agentScratchpad);
+  if (keys.length === 0) {
+    prompt += '[Empty]';
+  } else {
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      prompt += '\nMEMORY POINTER: ' + k + ' = ' + window.agentScratchpad[k];
+    }
+  }
+  return prompt;
+};
+</script>
+
+<script>
+window.runAgent = async function(userMessage) {
+  window.chat.push({ role: 'user', content: userMessage });
+  window.chatEvents.emit('user', userMessage);
+  var errorCount = 0;
+  var formatFails = 0;
+  while (true) {
+    try {
+      var systemPrompt = await window.buildAgentPrompt();
+      if (window.stopAgent) {
+        systemPrompt += '\nUSER OVERRIDE: Stop executing tools. Output <<ANSWER>>.';
+        window.stopAgent = false;
+      }
+      window.chatEvents.emit('status', 'thinking...');
+      var aiResponse = await window.fetchAI(systemPrompt);
+      window.chatEvents.emit('assistant', aiResponse);
+      window.chat.push({ role: 'assistant', content: aiResponse });
+      window.chatEvents.emit('status', 'idle');
+      var action = window.parseAction(aiResponse);
+      if (action && window.executeTool) {
+        formatFails = 0;
+        window.chatEvents.emit('tool_call', action.name);
+        var result = await window.executeTool(action.name, action.input);
+        window.chatEvents.emit('tool_result', result);
+        window.chat.push({ role: 'user', content: 'OBSERVATION:\n' + result });
+        continue;
+      }
+      if (action && !window.executeTool) {
+        window.chat.push({ role: 'user', content: 'SYSTEM WARNING: no tool executor installed. Answer directly with <<ANSWER>>.' });
+        continue;
+      }
+      var answer = window.parseAnswer(aiResponse);
+      if (answer !== null) {
+        window.chatEvents.emit('done', answer);
+        break;
+      }
+      formatFails++;
+      if (formatFails >= 3) {
+        window.chatEvents.emit('error', 'model failed the output format 3 times');
+        window.chatEvents.emit('done', aiResponse);
+        break;
+      }
+      window.chat.push({ role: 'user', content: 'SYSTEM WARNING: format error. Your last reply had no usable tag. Reply again and end it one of two ways: <<ACTION: name>> then the tool input on the next line, or <<ANSWER>> then your message on the next line. Put nothing after the input or message.' });
+    } catch (err) {
+      errorCount++;
+      window.chatEvents.emit('error', err.message);
+      if (errorCount >= 7) {
+        break;
+      }
+    }
+  }
+};
+
+var submitBtn = document.getElementById('submit-btn');
+var stopBtn = document.getElementById('stop-btn');
+var userInput = document.getElementById('user-input');
+
+submitBtn.replaceWith(submitBtn.cloneNode(true));
+stopBtn.replaceWith(stopBtn.cloneNode(true));
+userInput.replaceWith(userInput.cloneNode(true));
+
+submitBtn = document.getElementById('submit-btn');
+stopBtn = document.getElementById('stop-btn');
+userInput = document.getElementById('user-input');
+
+submitBtn.addEventListener('click', function() {
+  var text = userInput.value.trim();
+  if (text) {
+    window.runAgent(text);
+    userInput.value = '';
+  }
+});
+
+userInput.addEventListener('keydown', function(e) {
+  if (e.ctrlKey && e.key === 'Enter') {
+    var text = userInput.value.trim();
+    if (text) {
+      window.runAgent(text);
+      userInput.value = '';
+    }
+  }
+});
+
+stopBtn.addEventListener('click', function() {
+  window.stopAgent = true;
+  if (window.abortCtrl) {
+    window.abortCtrl.abort();
+  }
+});
+</script>
+
+<script>
+var toolPrefix = function() {
+  var v = document.getElementById('tools-folder').value.trim();
+  if (v && v.charAt(v.length - 1) !== '/') v += '/';
+  return v;
+};
+
+window.getActiveToolsString = async function() {
+  var prefix = toolPrefix();
+  var lines = [];
+  var matchedKeys = await keys(IDBKeyRange.bound(prefix, prefix + '\uffff'));
+  for (var i = 0; i < matchedKeys.length; i++) {
+    var k = matchedKeys[i];
+    var c = await read(k);
+    var desc = 'No description';
+    if (c && c.indexOf('/*') !== -1) {
+      desc = c.split('*/')[0].split('/*')[1].trim();
+    }
+    lines.push(k.slice(prefix.length) + ' - ' + desc);
+  }
+  if (lines.length === 0) return 'No tools found.';
+  return lines.join('\n');
+};
+
+window.executeTool = async function(toolName, toolInput) {
+  try {
+    var prefix = toolPrefix();
+    var code = await read(toolName);
+    if (!code && toolName.slice(0, prefix.length) !== prefix) {
+      code = await read(prefix + toolName);
+    }
+    if (!code) throw new Error('Tool not found: ' + toolName);
+    if (code.startsWith('/*')) {
+      var endIdx = code.indexOf('*/');
+      if (endIdx !== -1) {
+        code = code.slice(endIdx + 2).trim();
+      }
+    }
+    return await new Function('INPUT', 'return (async () => {' + code + '})()')(toolInput);
+  } catch (err) {
+    console.error('Tool Execution Failed:', err);
+    return 'Tool Execution Error: ' + err.message;
+  }
+};
+</script>
+
+<script>
+// skills are the cheap context tier, only the one-line descriptions cost tokens every turn, bodies are loaded on demand through the read tool
+if (window.buildAgentPrompt && !window.buildAgentPrompt._hasSkills) {
+  var prevBuildSkills = window.buildAgentPrompt;
+
+  var skillPrefix = function() {
+    var v = document.getElementById('skills-folder').value.trim();
+    if (v && v.charAt(v.length - 1) !== '/') v += '/';
+    return v;
+  };
+
+  window.getSkillsIndex = async function() {
+    var prefix = skillPrefix();
+    var lines = [];
+    var matchedKeys = await keys(IDBKeyRange.bound(prefix, prefix + '\uffff'));
+    for (var i = 0; i < matchedKeys.length; i++) {
+      var c = await read(matchedKeys[i]);
+      var desc = 'No description';
+      if (c && c.indexOf('/*') !== -1) {
+        desc = c.split('*/')[0].split('/*')[1].trim();
+      }
+      lines.push(matchedKeys[i] + ' - ' + desc);
+    }
+    return lines.length > 0 ? lines.join('\n') : '';
+  };
+
+  window.buildAgentPrompt = async function() {
+    var p = await prevBuildSkills();
+    var idx = await window.getSkillsIndex();
+    if (idx) {
+      p += '\nSKILLS (load before use):\n' + idx + '\nTo apply a skill, first load its full body with the read tool, then follow its instructions.\n';
+    }
+    return p;
+  };
+  window.buildAgentPrompt._hasSkills = true;
+}
+</script>
+
+<script>
+// identity tier: soul and user are short identity files, context-files is eager pay-now tier for large documents, [[links]] are pay-when-needed tier handled by the read tool
+if (window.buildAgentPrompt && !window.buildAgentPrompt._hasIdentity) {
+  var prevBuildIdentity = window.buildAgentPrompt;
+  window.buildAgentPrompt = async function() {
+    var soul = await read('soul');
+    var user = await read('user');
+    var identity = '';
+    if (soul) identity += '<soul>\n' + soul + '\n</soul>';
+    if (user) {
+      if (identity) identity += '\n';
+      identity += '<user>\n' + user + '\n</user>';
+    }
+    var p = await prevBuildIdentity();
+    if (identity) p = identity + '\n\n' + p;
+    p += '\nWhen a message contains [[links]], treat each link as a file name in the dataverse and load it with the read tool before answering.';
+    var ctxInput = document.getElementById('context-files');
+    if (ctxInput) {
+      var ctxVal = ctxInput.value.trim();
+      if (ctxVal) {
+        var entries = ctxVal.split(',');
+        for (var i = 0; i < entries.length; i++) {
+          var entry = entries[i].trim();
+          if (!entry) continue;
+          var c = await read(entry);
+          if (c) p += '\n<context file="' + entry + '">\n' + c + '\n</context>';
+        }
+      }
+    }
+    return p;
+  };
+  window.buildAgentPrompt._hasIdentity = true;
+}
+</script>
+
+<script>
+// chunked context compaction - CRITICAL: prevFetchCompact is unique to avoid infinite recursion
+var prevFetchCompact = window.fetchAI;
+
+if (window.fetchAI && !window.fetchAI._hasCompaction) {
+  window.estimateTokens = function(text) {
+    return Math.ceil(text.length / 4 * 1.2);
+  };
+
+  window.summarizeText = async function(text, instructions) {
+    var model = document.getElementById('model-name').value;
+    var host = document.getElementById('model-host').value;
+    var apikey = document.getElementById('api-key').value;
+    var headers = { 'Content-Type': 'application/json' };
+    if (apikey) {
+      headers.Authorization = 'Bearer ' + apikey;
+    }
+    var body = JSON.stringify({
+      model: model,
+      messages: [
+        { role: 'system', content: instructions },
+        { role: 'user', content: text }
+      ],
+      stream: false
+    });
+    var resp = await fetch(host, {
+      method: 'POST',
+      headers: headers,
+      body: body
+    });
+    var json = await resp.json();
+    return json.choices[0].message.content;
+  };
+
+  window.compactChat = async function() {
+    try {
+      var capacity = parseInt(document.getElementById('compact-threshold').value) || 500000;
+      var maxChunk = Math.floor(capacity * 0.4);
+      var tailTokens = Math.floor(capacity * 0.1);
+
+      // walk backwards to collect tail
+      var tail = [];
+      var tailCount = 0;
+      var i = window.chat.length - 1;
+      while (i >= 0 && tailCount < 2) {
+        tail.unshift(window.chat[i]);
+        tailCount++;
+        i--;
+      }
+      while (i >= 0) {
+        var msg = window.chat[i];
+        var msgTokens = window.estimateTokens(msg.content);
+        if (tail.reduce(function(s, m) { return s + window.estimateTokens(m.content); }, 0) + msgTokens > tailTokens) {
+          break;
+        }
+        tail.unshift(msg);
+        i--;
+      }
+
+      var regionEnd = window.chat.length - tail.length;
+      if (regionEnd === 0) {
+        return;
+      }
+
+      var start = window.chatSummary ? window.chatSummary.upTo : 0;
+      var transcript = '';
+      if (window.chatSummary) {
+        transcript += 'PREVIOUS SUMMARY:\n' + window.chatSummary.text + '\n\n';
+      }
+      for (var j = start; j < regionEnd; j++) {
+        transcript += window.chat[j].role + ': ' + window.chat[j].content + '\n';
+      }
+
+      var summary;
+      if (window.estimateTokens(transcript) <= maxChunk) {
+        summary = await window.summarizeText(transcript, 'You are a compaction engine. Summarize this conversation transcript for an agent that will continue it. Preserve with maximum recall: the users goals, every decision made, every fact or file name mentioned, tool results that matter, and all open questions. Discard filler. Output only the summary.');
+      } else {
+        // greedy chunking
+        var chunks = [];
+        var current = '';
+        var lines = transcript.split('\n');
+        for (var k = 0; k < lines.length; k++) {
+          var line = lines[k] + '\n';
+          if (window.estimateTokens(current + line) > maxChunk && current) {
+            chunks.push(current);
+            current = line;
+          } else {
+            current += line;
+          }
+        }
+        if (current) chunks.push(current);
+
+        var partials = [];
+        for (var c = 0; c < chunks.length; c++) {
+          var p = await window.summarizeText(chunks[c], 'You are a compaction engine. Summarize this conversation transcript for an agent that will continue it. Preserve with maximum recall: the users goals, every decision made, every fact or file name mentioned, tool results that matter, and all open questions. Discard filler. Output only the summary.');
+          partials.push(p);
+        }
+
+        // reduce
+        var joined = partials.join('\n');
+        while (window.estimateTokens(joined) > maxChunk) {
+          var subChunks = [];
+          var cur = '';
+          var jLines = joined.split('\n');
+          for (var l = 0; l < jLines.length; l++) {
+            var lLine = jLines[l] + '\n';
+            if (window.estimateTokens(cur + lLine) > maxChunk && cur) {
+              subChunks.push(cur);
+              cur = lLine;
+            } else {
+              cur += lLine;
+            }
+          }
+          if (cur) subChunks.push(cur);
+          var newPartials = [];
+          for (var s = 0; s < subChunks.length; s++) {
+            var sp = await window.summarizeText(subChunks[s], 'You are a compaction engine. Summarize this conversation transcript for an agent that will continue it. Preserve with maximum recall: the users goals, every decision made, every fact or file name mentioned, tool results that matter, and all open questions. Discard filler. Output only the summary.');
+            newPartials.push(sp);
+          }
+          joined = newPartials.join('\n');
+        }
+        summary = await window.summarizeText(joined, 'Merge these partial summaries into one cohesive summary. Preserve decisions, TODOs, open questions, file names, and constraints. Output only the summary.');
+      }
+
+      window.chatSummary = { text: summary, upTo: regionEnd };
+      window.chatEvents.emit('compact', start + '-' + window.chatSummary.upTo + ' messages summarized into ' + window.estimateTokens(summary) + ' tokens');
+    } catch (err) {
+      window.chatEvents.emit('error', err.message);
+    }
+  };
+
+  window.fetchAI = async function(systemPrompt) {
+    var capacity = parseInt(document.getElementById('compact-threshold').value) || 500000;
+    var totalTokens = window.estimateTokens(systemPrompt);
+    for (var i = 0; i < window.chat.length; i++) {
+      totalTokens += window.estimateTokens(window.chat[i].content);
+    }
+
+    if (totalTokens > capacity * 0.8) {
+      window.chatEvents.emit('status', 'compacting...');
+      await window.compactChat();
+    }
+
+    var realChat;
+    var swapped = false;
+    if (window.chatSummary) {
+      realChat = window.chat;
+      window.chat = [{ role: 'system', content: '<summary of earlier conversation>\n' + window.chatSummary.text + '\n</summary>' }].concat(realChat.slice(window.chatSummary.upTo));
+      swapped = true;
+    }
+
+    var out = await prevFetchCompact(systemPrompt);
+
+    if (swapped) {
+      window.chat = realChat;
+    }
+
+    return out;
+  };
+
+  window.fetchAI._hasCompaction = true;
+}
+</script>
+
+<script>
+var agentIdBytes = new Uint8Array(8);
+crypto.getRandomValues(agentIdBytes);
+var agentId = '';
+for (var i = 0; i < agentIdBytes.length; i++) {
+  var hexByte = agentIdBytes[i].toString(16);
+  if (hexByte.length === 1) hexByte = '0' + hexByte;
+  agentId += hexByte;
+}
+window.agentId = agentId;
+
+var planPath = 'memory#agents/' + window.agentId + '/plan';
+
+var readPlan = async function() {
+  var key = planPath.split('#')[1];
+  return await read(key, 'memory');
+};
+
+var originalBuildAgentPrompt = window.buildAgentPrompt;
+window.buildAgentPrompt = async function() {
+  var prompt = await originalBuildAgentPrompt();
+  var planContents = await readPlan();
+  if (!planContents) planContents = 'empty';
+  prompt += '\nCURRENT PLAN\npath: ' + planPath + '\ncontents: ' + planContents + '\nhow to plan: read the file skills/planning with the read tool\nREPLY FORMAT: end your reply with <<ACTION: name>> and the input on the next line, or <<ANSWER>> and your message on the next line';
+  return prompt;
+};
+window.buildAgentPrompt._hasPlan = true;
+
+var originalFetchAI = window.fetchAI;
+var beatSeen = 0;
+var beatPlanned = false;
+window.fetchAI = async function(systemPrompt) {
+  var userCount = 0;
+  for (var i = 0; i < window.chat.length; i++) {
+    if (window.chat[i].role === 'user') userCount++;
+  }
+  var diff = userCount - beatSeen;
+  var fire = false;
+  if (diff >= 3) {
+    fire = true;
+  } else if (diff >= 1) {
+    var lastUserMsg = null;
+    for (var j = window.chat.length - 1; j >= 0; j--) {
+      if (window.chat[j].role === 'user') {
+        lastUserMsg = window.chat[j].content;
+        break;
+      }
+    }
+    if (lastUserMsg && /error/i.test(lastUserMsg)) {
+      fire = true;
+    }
+  }
+  if (fire) {
+    beatSeen = userCount;
+    var reminderMsg;
+    if (!beatPlanned) {
+      reminderMsg = 'this task is running long — write your plan to the plan path in the system prompt now, one [ ] step per remaining action —';
+      beatPlanned = true;
+    } else {
+      reminderMsg = 'Reminder: check your plan file (path in the system prompt), update it to match reality, then continue';
+    }
+    window.chat.push({ role: 'user', content: reminderMsg });
+    try {
+      return await originalFetchAI(systemPrompt);
+    } finally {
+      window.chat.pop();
+    }
+  } else {
+    return await originalFetchAI(systemPrompt);
+  }
+};
+window.fetchAI._hasHeartbeat = true;
+</script>

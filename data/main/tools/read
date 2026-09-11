@@ -1,0 +1,21 @@
+
+
+/* read - read a file by name. INPUT: a bare file name like notes.txt for the current namespace, or namespace#filename like docs#devlog for another namespace */
+try {
+  const input = INPUT.trim();
+  if (!input) return "Error: no file path provided";
+  let namespace, filename;
+  const hashIndex = input.indexOf('#');
+  if (hashIndex !== -1) {
+    namespace = input.slice(0, hashIndex);
+    filename = input.slice(hashIndex + 1);
+  } else {
+    filename = input;
+  }
+  const result = await read(filename, namespace);
+  if (result === undefined || result === null) return `Error: file not found: ${input}`;
+  if (typeof result !== 'string') return JSON.stringify(result);
+  return result;
+} catch (e) {
+  return `Error: ${e.message}`;
+}

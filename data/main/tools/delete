@@ -1,0 +1,25 @@
+
+
+/* delete - permanently delete a file. INPUT: a bare file name like old.txt for the current namespace, or namespace#filename like docs#old.txt for another namespace */
+try {
+    let input = INPUT.trim();
+    if (!input) return "Error: no file path provided";
+    let namespace, filename;
+    let hashIndex = input.indexOf('#');
+    if (hashIndex !== -1) {
+        namespace = input.substring(0, hashIndex);
+        filename = input.substring(hashIndex + 1);
+    } else {
+        namespace = undefined;
+        filename = input;
+    }
+    let handle = namespace ? await getDB(namespace) : db;
+    let fileContent = await read(filename, namespace);
+    if (fileContent === undefined || fileContent === null) {
+        return "Error: file not found: " + input;
+    }
+    await queryDB(tx("readwrite", handle, FILES).delete(filename));
+    return "Deleted: " + input;
+} catch (e) {
+    return "Error: " + (e.message || e);
+}

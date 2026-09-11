@@ -1,0 +1,1114 @@
+
+
+<style>
+#A {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+#img-app {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+}
+
+.win95-panel {
+  border: 2px solid;
+  border-color: #fff #808080 #808080 #fff;
+  background-color: #c0c0c0;
+  padding: 8px;
+}
+
+.win95-sunken {
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+  background-color: #fff;
+  padding: 2px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+}
+
+#img-header {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+}
+
+#img-prompts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
+
+#img-params {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+}
+
+#img-buttons {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+}
+
+#img-gallery {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: flex-start;
+}
+
+#status-bar {
+  padding: 4px 8px;
+  border-top: 2px solid #808080;
+  border-bottom: 2px solid #fff;
+  border-left: 2px solid #808080;
+  border-right: 2px solid #fff;
+}
+
+.img-result {
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+  padding: 4px;
+}
+
+.img-result img {
+  display: block;
+  max-width: 256px;
+  max-height: 256px;
+}
+</style>
+
+<div id="img-app">
+  <div id="img-header" class="win95-panel">
+    <div class="field" style="flex: 1;">
+      <label for="model-select">model</label>
+      <select id="model-select" class="win95-sunken">
+        <option>loading...</option>
+      </select>
+    </div>
+    <div class="field" style="flex: 2;">
+      <label for="model-host">host</label>
+      <input type="text" id="model-host" class="win95-sunken" value="https://openrouter.ai/api/v1/images">
+    </div>
+    <div class="field" style="flex: 1;">
+      <label for="api-key">api key</label>
+      <input type="password" id="api-key" class="win95-sunken">
+    </div>
+  </div>
+
+  <div id="img-prompts" class="win95-panel">
+    <textarea id="img-prompt" class="win95-sunken" placeholder="prompt" style="min-height: 64px; resize: vertical;"></textarea>
+    <textarea id="img-negative" class="win95-sunken" placeholder="negative prompt" style="min-height: 40px; resize: vertical;"></textarea>
+  </div>
+
+  <div id="img-params" class="win95-panel">
+    <!-- empty -->
+  </div>
+
+  <div id="img-buttons" class="win95-panel">
+    <button id="submit-btn">Generate</button>
+    <button id="stop-btn">Stop</button>
+  </div>
+
+  <div id="img-gallery" class="win95-panel">
+    <!-- gallery items will be added by JS -->
+  </div>
+
+  <div id="status-bar">idle</div>
+</div>
+
+<script>
+var apiKeyInput = document.getElementById('api-key');
+var storedKey = localStorage.getItem('k');
+if (storedKey) {
+  apiKeyInput.value = storedKey;
+}
+apiKeyInput.addEventListener('change', function() {
+  localStorage.setItem('k', apiKeyInput.value);
+});
+
+var hostInput = document.getElementById('model-host');
+var storedHost = localStorage.getItem('apps_img_h');
+if (storedHost !== null) {
+  hostInput.value = storedHost;
+}
+hostInput.addEventListener('change', function() {
+  localStorage.setItem('apps_img_h', hostInput.value);
+});
+
+var modelSelect = document.getElementById('model-select');
+modelSelect.addEventListener('change', function() {
+  localStorage.setItem('apps_img_m', modelSelect.value);
+});
+
+window.imgState = { results: [], busy: false };
+window.imgModels = null;
+window.abortCtrl = null;
+</script>
+
+<script>
+window.fetchImageModels = async function() {
+  try {
+    var hostInputEl = document.getElementById('model-host');
+    var apiKeyInputEl = document.getElementById('api-key');
+    var statusEl = document.getElementById('status-bar');
+    var host = hostInputEl.value;
+    var apiKey = apiKeyInputEl.value;
+    statusEl.innerText = 'loading models...';
+    var url = host + '/models';
+    var headers = {};
+    if (apiKey && apiKey.length > 0) {
+      headers['Authorization'] = 'Bearer ' + apiKey;
+    }
+    var response = await fetch(url, { method: 'GET', headers: headers });
+    if (!response.ok) {
+      statusEl.innerText = 'HTTP ' + response.status;
+      return;
+    }
+    var json = await response.json();
+    var data = json.data;
+    window.imgModels = data;
+    var select = document.getElementById('model-select');
+    while (select.firstChild) {
+      select.removeChild(select.firstChild);
+    }
+    var saved = localStorage.getItem('apps_img_m');
+    var found = false;
+    for (var i = 0; i < data.length; i++) {
+      var model = data[i];
+      var option = document.createElement('option');
+      option.value = model.id;
+      option.textContent = model.name || model.id;
+      select.appendChild(option);
+      if (saved && saved === model.id) {
+        found = true;
+      }
+    }
+    if (found) {
+      select.value = saved;
+    } else if (select.children.length > 0) {
+      select.children[0].selected = true;
+    }
+    statusEl.innerText = 'idle';
+  } catch (err) {
+    document.getElementById('status-bar').innerText = err.message;
+  }
+};
+
+var hostInput = document.getElementById('model-host');
+var keyInput = document.getElementById('api-key');
+hostInput.addEventListener('change', window.fetchImageModels);
+keyInput.addEventListener('change', window.fetchImageModels);
+
+window.fetchImageModels();
+</script>
+
+<script>
+window.imgParams = {};
+window.renderImgParams = function() {
+  if (!window.imgModels || window.imgModels.length === 0) return;
+  var selectEl = document.getElementById('model-select');
+  var selectedId = selectEl.value;
+  var model = null;
+  for (var i = 0; i < window.imgModels.length; i++) {
+    if (window.imgModels[i].id === selectedId) {
+      model = window.imgModels[i];
+      break;
+    }
+  }
+  if (!model) return;
+  var supported = model.supported_parameters;
+  if (!supported) return;
+  for (var key in window.imgParams) {
+    delete window.imgParams[key];
+  }
+  var container = document.getElementById('img-params');
+  while (container.firstChild) {
+    container.removeChild(container.firstChild);
+  }
+  for (var k in supported) {
+    if (k === 'stream' || k === 'input_references') continue;
+    var desc = supported[k];
+    if (desc.type === 'enum') {
+      var label = document.createElement('label');
+      label.textContent = k;
+      var sel = document.createElement('select');
+      var vals = desc.values;
+      for (var v = 0; v < vals.length; v++) {
+        var opt = document.createElement('option');
+        opt.value = vals[v];
+        opt.textContent = vals[v];
+        sel.appendChild(opt);
+      }
+      sel.value = vals[0];
+      window.imgParams[k] = vals[0];
+      sel.addEventListener('change', (function(key, sel) {
+        return function() {
+          window.imgParams[key] = sel.value;
+        };
+      })(k, sel));
+      container.appendChild(label);
+      container.appendChild(sel);
+    } else if (desc.type === 'range') {
+      var label2 = document.createElement('label');
+      label2.textContent = k;
+      var num = document.createElement('input');
+      num.type = 'number';
+      num.min = desc.min;
+      num.max = desc.max;
+      num.value = desc.min;
+      window.imgParams[k] = desc.min;
+      num.addEventListener('change', (function(key, num) {
+        return function() {
+          window.imgParams[key] = parseFloat(num.value);
+        };
+      })(k, num));
+      container.appendChild(label2);
+      container.appendChild(num);
+    } else if (k === 'seed') {
+      var label3 = document.createElement('label');
+      label3.textContent = 'seed';
+      var seedInput = document.createElement('input');
+      seedInput.type = 'number';
+      seedInput.placeholder = 'optional';
+      seedInput.addEventListener('change', function() {
+        if (seedInput.value === '') {
+          delete window.imgParams.seed;
+        } else {
+          window.imgParams.seed = parseFloat(seedInput.value);
+        }
+      });
+      container.appendChild(label3);
+      container.appendChild(seedInput);
+    }
+  }
+};
+
+var modelSelectEl = document.getElementById('model-select');
+modelSelectEl.addEventListener('change', window.renderImgParams);
+
+var prevFetchModelsParams;
+if (!window.fetchImageModels._hasParams) {
+  prevFetchModelsParams = window.fetchImageModels;
+  window.fetchImageModels = async function() {
+    await prevFetchModelsParams();
+    window.renderImgParams();
+  };
+  window.fetchImageModels._hasParams = true;
+}
+window.fetchImageModels();
+</script>
+
+<script>
+window.generateImage = async function() {
+  try {
+    if (window.imgState.busy) return;
+    var promptInput = document.getElementById('img-prompt');
+    var prompt = promptInput.value.trim();
+    if (prompt === '') {
+      document.getElementById('status-bar').innerText = 'enter a prompt';
+      return;
+    }
+    var negInput = document.getElementById('img-negative');
+    var neg = negInput.value.trim();
+    if (neg !== '') {
+      prompt = prompt + '\nAvoid: ' + neg;
+    }
+    var modelSelect = document.getElementById('model-select');
+    var model = modelSelect.value;
+    var hostInput = document.getElementById('model-host');
+    var host = hostInput.value;
+    var apiKeyInput = document.getElementById('api-key');
+    var apiKey = apiKeyInput.value;
+
+    window.imgState.busy = true;
+    document.getElementById('status-bar').innerText = 'generating...';
+    window.abortCtrl = new AbortController();
+
+    var body = { model: model, prompt: prompt };
+    for (var key in window.imgParams) {
+      if (window.imgParams.hasOwnProperty(key)) {
+        var val = window.imgParams[key];
+        if (val !== undefined && val !== null && val !== '') {
+          body[key] = val;
+        }
+      }
+    }
+
+    var headers = { 'Content-Type': 'application/json' };
+    if (apiKey && apiKey.length > 0) {
+      headers['Authorization'] = 'Bearer ' + apiKey;
+    }
+
+    var response = await fetch(host, {
+      method: 'POST',
+      headers: headers,
+      signal: window.abortCtrl.signal,
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      document.getElementById('status-bar').innerText = 'HTTP ' + response.status;
+      window.imgState.busy = false;
+      return;
+    }
+
+    var json = await response.json();
+    var data = json.data;
+    for (var i = 0; i < data.length; i++) {
+      var item = data[i];
+      window.imgState.results.push({
+        b64: item.b64_json,
+        media_type: item.media_type || 'image/png',
+        prompt: prompt,
+        ts: Date.now()
+      });
+    }
+
+    if (typeof window.renderGallery === 'function') {
+      window.renderGallery();
+    }
+
+    window.imgState.busy = false;
+    window.abortCtrl = null;
+    document.getElementById('status-bar').innerText = 'idle';
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      document.getElementById('status-bar').innerText = 'stopped';
+    } else {
+      document.getElementById('status-bar').innerText = err.message;
+    }
+    window.imgState.busy = false;
+    window.abortCtrl = null;
+  }
+};
+</script>
+
+<script>
+window.renderGallery = function() {
+  var gallery = document.getElementById('img-gallery');
+  while (gallery.firstChild) {
+    gallery.removeChild(gallery.firstChild);
+  }
+  for (var i = 0; i < window.imgState.results.length; i++) {
+    var entry = window.imgState.results[i];
+    var container = document.createElement('div');
+    container.className = 'img-result';
+    var img = document.createElement('img');
+    img.src = 'data:' + entry.media_type + ';base64,' + entry.b64;
+    container.appendChild(img);
+    gallery.appendChild(container);
+  }
+};
+
+var submitBtn = document.getElementById('submit-btn');
+submitBtn.addEventListener('click', function() {
+  window.generateImage();
+});
+
+var promptInput = document.getElementById('img-prompt');
+promptInput.addEventListener('keydown', function(e) {
+  if (e.ctrlKey && e.key === 'Enter') {
+    window.generateImage();
+  }
+});
+
+var stopBtn = document.getElementById('stop-btn');
+stopBtn.addEventListener('click', function() {
+  if (window.abortCtrl) {
+    window.abortCtrl.abort();
+  }
+});
+
+// future features hook the img:result event on window instead of wrapping this chain
+var prevGenEvents = window.generateImage;
+if (!window.generateImage._hasEvents) {
+  window.generateImage = async function() {
+    var before = window.imgState.results.length;
+    await prevGenEvents();
+    for (var i = before; i < window.imgState.results.length; i++) {
+      var entry = window.imgState.results[i];
+      window.dispatchEvent(new CustomEvent('img:result', { detail: entry }));
+    }
+  };
+  window.generateImage._hasEvents = true;
+}
+</script>
+
+<script>
+window.generateImage = async function() {
+  try {
+    if (window.imgState.busy) return;
+    var promptInput = document.getElementById('img-prompt');
+    var prompt = promptInput.value.trim();
+    if (prompt === '') {
+      document.getElementById('status-bar').innerText = 'enter a prompt';
+      return;
+    }
+    var negInput = document.getElementById('img-negative');
+    var neg = negInput.value.trim();
+    if (neg !== '') {
+      prompt = prompt + '\nAvoid: ' + neg;
+    }
+    var modelSelect = document.getElementById('model-select');
+    var model = modelSelect.value;
+    var hostInput = document.getElementById('model-host');
+    var host = hostInput.value;
+    var apiKeyInput = document.getElementById('api-key');
+    var apiKey = apiKeyInput.value;
+
+    window.imgState.busy = true;
+    document.getElementById('status-bar').innerText = 'generating...';
+    window.abortCtrl = new AbortController();
+
+    var body = { model: model, prompt: prompt };
+    for (var key in window.imgParams) {
+      if (window.imgParams.hasOwnProperty(key)) {
+        var val = window.imgParams[key];
+        if (val !== undefined && val !== null && val !== '') {
+          body[key] = val;
+        }
+      }
+    }
+
+    var headers = { 'Content-Type': 'application/json' };
+    if (apiKey && apiKey.length > 0) {
+      headers['Authorization'] = 'Bearer ' + apiKey;
+    }
+
+    var response = await fetch(host, {
+      method: 'POST',
+      headers: headers,
+      signal: window.abortCtrl.signal,
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      document.getElementById('status-bar').innerText = 'HTTP ' + response.status;
+      window.imgState.busy = false;
+      return;
+    }
+
+    var json = await response.json();
+    var data = json.data;
+    if (json.usage) {
+      window.imgState.lastUsage = json.usage;
+    }
+    for (var i = 0; i < data.length; i++) {
+      var item = data[i];
+      window.imgState.results.push({
+        b64: item.b64_json,
+        media_type: item.media_type || 'image/png',
+        model: model,
+        prompt: prompt,
+        ts: Date.now()
+      });
+    }
+
+    if (typeof window.renderGallery === 'function') {
+      window.renderGallery();
+    }
+
+    window.imgState.busy = false;
+    window.abortCtrl = null;
+    document.getElementById('status-bar').innerText = 'idle';
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      document.getElementById('status-bar').innerText = 'stopped';
+    } else {
+      document.getElementById('status-bar').innerText = err.message;
+    }
+    window.imgState.busy = false;
+    window.abortCtrl = null;
+  }
+};
+</script>
+
+<script>
+// future features hook the img:result event on window instead of wrapping this chain
+window.renderGallery = function() {
+  var gallery = document.getElementById('img-gallery');
+  while (gallery.firstChild) {
+    gallery.removeChild(gallery.firstChild);
+  }
+  for (var i = 0; i < window.imgState.results.length; i++) {
+    var entry = window.imgState.results[i];
+    var container = document.createElement('div');
+    container.className = 'img-result';
+    var img = document.createElement('img');
+    img.src = 'data:' + entry.media_type + ';base64,' + entry.b64;
+    img.title = entry.model + ' — ' + entry.prompt;
+    img.alt = entry.model + ' — ' + entry.prompt;
+    container.appendChild(img);
+    gallery.appendChild(container);
+  }
+};
+
+var submitBtn = document.getElementById('submit-btn');
+submitBtn.addEventListener('click', function() {
+  window.generateImage();
+});
+
+var promptInput = document.getElementById('img-prompt');
+promptInput.addEventListener('keydown', function(e) {
+  if (e.ctrlKey && e.key === 'Enter') {
+    window.generateImage();
+  }
+});
+
+var stopBtn = document.getElementById('stop-btn');
+stopBtn.addEventListener('click', function() {
+  if (window.abortCtrl) {
+    window.abortCtrl.abort();
+  }
+});
+
+if (!window.generateImage._hasEvents) {
+  var prevGenEvents = window.generateImage;
+  window.generateImage = async function() {
+    var before = window.imgState.results.length;
+    await prevGenEvents();
+    for (var i = before; i < window.imgState.results.length; i++) {
+      var entry = window.imgState.results[i];
+      window.dispatchEvent(new CustomEvent('img:result', { detail: entry }));
+    }
+  };
+  window.generateImage._hasEvents = true;
+}
+</script>
+
+<script>
+window.imgViewerIndex = null;
+
+// create viewer DOM
+var viewer = document.createElement('div');
+viewer.id = 'img-viewer';
+viewer.style.position = 'fixed';
+viewer.style.top = '0';
+viewer.style.left = '0';
+viewer.style.width = '100%';
+viewer.style.height = '100%';
+viewer.style.background = 'rgba(0,0,0,0.5)';
+viewer.style.display = 'none';
+viewer.style.justifyContent = 'center';
+viewer.style.alignItems = 'center';
+viewer.style.zIndex = '9999';
+viewer.style.flexDirection = 'row';
+
+var prevBtn = document.createElement('button');
+prevBtn.id = 'img-viewer-prev';
+prevBtn.textContent = '⬅️';
+prevBtn.style.padding = '16px';
+prevBtn.style.fontSize = '24px';
+prevBtn.style.cursor = 'pointer';
+
+var column = document.createElement('div');
+column.style.display = 'flex';
+column.style.flexDirection = 'column';
+column.style.alignItems = 'center';
+
+var img = document.createElement('img');
+img.id = 'img-viewer-img';
+img.style.maxWidth = '80vw';
+img.style.maxHeight = '80vh';
+
+var caption = document.createElement('div');
+caption.id = 'img-viewer-caption';
+caption.style.color = '#fff';
+caption.style.maxHeight = '3em';
+caption.style.overflow = 'hidden';
+caption.style.textAlign = 'center';
+caption.style.padding = '8px';
+
+column.appendChild(img);
+column.appendChild(caption);
+
+var nextBtn = document.createElement('button');
+nextBtn.id = 'img-viewer-next';
+nextBtn.textContent = '➡️';
+nextBtn.style.padding = '16px';
+nextBtn.style.fontSize = '24px';
+nextBtn.style.cursor = 'pointer';
+
+var closeBtn = document.createElement('button');
+closeBtn.id = 'img-viewer-close';
+closeBtn.textContent = '❌';
+closeBtn.style.position = 'absolute';
+closeBtn.style.top = '10px';
+closeBtn.style.right = '10px';
+closeBtn.style.padding = '16px';
+closeBtn.style.fontSize = '24px';
+closeBtn.style.cursor = 'pointer';
+closeBtn.style.background = 'transparent';
+closeBtn.style.border = 'none';
+closeBtn.style.color = '#fff';
+
+viewer.appendChild(prevBtn);
+viewer.appendChild(column);
+viewer.appendChild(nextBtn);
+viewer.appendChild(closeBtn);
+
+document.body.appendChild(viewer);
+
+// the viewer reads window.imgState.results live on every render so navigation always reflects the current gallery
+
+window.renderImgViewer = function() {
+  if (window.imgViewerIndex === null) {
+    viewer.style.display = 'none';
+    return;
+  }
+  var results = window.imgState.results;
+  if (results.length === 0) {
+    window.closeImgViewer();
+    return;
+  }
+  if (window.imgViewerIndex < 0) {
+    window.imgViewerIndex = 0;
+  }
+  if (window.imgViewerIndex >= results.length) {
+    window.imgViewerIndex = results.length - 1;
+  }
+  var entry = results[window.imgViewerIndex];
+  img.src = 'data:' + entry.media_type + ';base64,' + entry.b64;
+  caption.innerText = entry.model + ' — ' + entry.prompt;
+  viewer.style.display = 'flex';
+};
+
+window.openImgViewer = function(i) {
+  window.imgViewerIndex = i;
+  viewer.style.display = 'flex';
+  window.renderImgViewer();
+  window.dispatchEvent(new CustomEvent('img:view', { detail: { index: i } }));
+};
+
+window.closeImgViewer = function() {
+  window.imgViewerIndex = null;
+  viewer.style.display = 'none';
+};
+
+window.stepImgViewer = function(d) {
+  var n = window.imgState.results.length;
+  if (n === 0) return;
+  window.imgViewerIndex = (window.imgViewerIndex + d + n) % n;
+  window.renderImgViewer();
+};
+
+var gallery = document.getElementById('img-gallery');
+gallery.addEventListener('click', function(e) {
+  var target = e.target;
+  if (target.tagName === 'IMG' && target.closest) {
+    var resultEl = target.closest('.img-result');
+    if (resultEl) {
+      var children = gallery.children;
+      for (var i = 0; i < children.length; i++) {
+        if (children[i] === resultEl) {
+          window.openImgViewer(i);
+          break;
+        }
+      }
+    }
+  }
+});
+
+viewer.addEventListener('click', function(e) {
+  if (e.target === viewer) {
+    window.closeImgViewer();
+  }
+});
+
+prevBtn.addEventListener('click', function() {
+  window.stepImgViewer(-1);
+});
+
+nextBtn.addEventListener('click', function() {
+  window.stepImgViewer(1);
+});
+
+closeBtn.addEventListener('click', function() {
+  window.closeImgViewer();
+});
+
+window.addEventListener('keydown', function(e) {
+  if (window.imgViewerIndex === null) return;
+  if (e.key === 'Escape') {
+    window.closeImgViewer();
+  } else if (e.key === 'ArrowLeft') {
+    window.stepImgViewer(-1);
+  } else if (e.key === 'ArrowRight') {
+    window.stepImgViewer(1);
+  }
+});
+</script>
+
+<script>
+window.EMPTY_PIXEL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=";
+window.b64ToBlob = async function(b64, mime) {
+  var response = await fetch('data:' + mime + ';base64,' + b64);
+  return await response.blob();
+};
+window.emptyPixelBlob = async function() {
+  var response = await fetch(window.EMPTY_PIXEL);
+  return await response.blob();
+};
+window.embedMeta = async function(blob, entry) {
+  var metadataText = entry.prompt + '\nModel: ' + entry.model + ', Date: ' + new Date(entry.ts).toISOString();
+  var bmp = await createImageBitmap(blob);
+  var canvas = document.createElement('canvas');
+  canvas.width = bmp.width;
+  canvas.height = bmp.height;
+  var ctx = canvas.getContext('2d');
+  ctx.drawImage(bmp, 0, 0);
+  var jpeg = await new Promise(function(resolve, reject) {
+    canvas.toBlob(function(blob) {
+      if (blob) resolve(blob);
+      else reject(new Error('toBlob failed'));
+    }, 'image/jpeg', 0.92);
+  });
+  var jpegBytes = await jpeg.arrayBuffer();
+  var jpegView = new Uint8Array(jpegBytes);
+  var encoder = new TextEncoder();
+  var textBytes = encoder.encode(metadataText);
+  if (textBytes.length > 65533) {
+    textBytes = textBytes.slice(0, 65533);
+  }
+  var seg = new Uint8Array(4 + textBytes.length);
+  seg[0] = 0xFF;
+  seg[1] = 0xFE;
+  var len = textBytes.length + 2;
+  seg[2] = (len >> 8) & 0xFF;
+  seg[3] = len & 0xFF;
+  seg.set(textBytes, 4);
+  var newBytes = new Uint8Array(2 + seg.length + (jpegView.length - 2));
+  newBytes.set(jpegView.subarray(0, 2), 0);
+  newBytes.set(seg, 2);
+  newBytes.set(jpegView.subarray(2), 2 + seg.length);
+  return new Blob([newBytes], { type: 'image/jpeg' });
+};
+window.fileNameFor = function(entry) {
+  var d = new Date(entry.ts);
+  var year = String(d.getFullYear()).slice(-2);
+  var month = String(d.getMonth() + 1).padStart(2, '0');
+  var day = String(d.getDate()).padStart(2, '0');
+  var hours = String(d.getHours()).padStart(2, '0');
+  var minutes = String(d.getMinutes()).padStart(2, '0');
+  var seconds = String(d.getSeconds()).padStart(2, '0');
+  var dateStr = year + month + day + '-' + hours + minutes + seconds;
+  var words = entry.prompt.trim().split(/\s+/).slice(0, 10).map(function(w) {
+    return w.toLowerCase().replace(/[^a-z0-9]/g, '');
+  }).join('-');
+  if (words === '') words = 'prompt';
+  return dateStr + '-' + words + '.jpg';
+};
+window.saveTarget = function(folderString, filename) {
+  var hashIndex = folderString.indexOf('#');
+  var ns, folder;
+  if (hashIndex !== -1) {
+    ns = folderString.substring(0, hashIndex);
+    folder = folderString.substring(hashIndex + 1);
+  } else {
+    ns = null;
+    folder = folderString;
+  }
+  return { ns: ns, key: folder + '/' + filename };
+};
+</script>
+
+<script>
+// the filesystem has no delete, unchecking overwrites the file with an empty pixel blob; window.embedMeta from the previous script embeds the prompt and model as a jpeg COM segment so the file carries its own recipe
+
+var saveRow = document.createElement('div');
+saveRow.id = 'img-save-row';
+saveRow.style.display = 'flex';
+saveRow.style.gap = '8px';
+saveRow.style.padding = '8px';
+
+var saveLabel = document.createElement('label');
+saveLabel.textContent = 'save folder';
+var saveInput = document.createElement('input');
+saveInput.id = 'save-folder';
+saveInput.type = 'text';
+var savedFolder = localStorage.getItem('apps_img_sf');
+saveInput.value = savedFolder !== null ? savedFolder : 'private#img';
+saveInput.addEventListener('change', function() {
+  localStorage.setItem('apps_img_sf', saveInput.value);
+});
+saveLabel.appendChild(saveInput);
+saveRow.appendChild(saveLabel);
+
+var header = document.getElementById('img-header');
+header.parentNode.insertBefore(saveRow, header.nextSibling);
+
+window.makeTileControls = function(tile, entry) {
+  var ctrlRow = document.createElement('div');
+  ctrlRow.style.display = 'flex';
+  ctrlRow.style.gap = '4px';
+  ctrlRow.style.alignItems = 'center';
+
+  var dlBtn = document.createElement('button');
+  dlBtn.textContent = '⬇️';
+  dlBtn.title = 'download';
+  dlBtn.addEventListener('click', async function() {
+    var blob = await window.embedMeta(await window.b64ToBlob(entry.b64, entry.media_type), entry);
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = window.fileNameFor(entry);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  });
+
+  var storeLabel = document.createElement('label');
+  storeLabel.textContent = 'store in browser';
+  var storeCheck = document.createElement('input');
+  storeCheck.type = 'checkbox';
+  storeCheck.checked = !!entry.stored;
+  storeCheck.addEventListener('change', async function() {
+    try {
+      if (storeCheck.checked) {
+        var blob = await window.embedMeta(await window.b64ToBlob(entry.b64, entry.media_type), entry);
+        var t = window.saveTarget(document.getElementById('save-folder').value, window.fileNameFor(entry));
+        entry.savedKey = t.key;
+        entry.savedNs = t.ns;
+        if (t.ns !== null) {
+          await write(blob, t.key, t.ns);
+        } else {
+          await write(blob, t.key);
+        }
+        entry.stored = true;
+      } else {
+        var emptyBlob = await window.emptyPixelBlob();
+        if (entry.savedNs !== null) {
+          await write(emptyBlob, entry.savedKey, entry.savedNs);
+        } else {
+          await write(emptyBlob, entry.savedKey);
+        }
+        entry.stored = false;
+      }
+    } catch (err) {
+      document.getElementById('status-bar').innerText = err.message;
+    }
+  });
+  storeLabel.appendChild(storeCheck);
+
+  ctrlRow.appendChild(dlBtn);
+  ctrlRow.appendChild(storeLabel);
+  tile.appendChild(ctrlRow);
+};
+
+if (!window.renderGallery._hasSave) {
+  var prevRenderSave = window.renderGallery;
+  window.renderGallery = function() {
+    prevRenderSave();
+    var gallery = document.getElementById('img-gallery');
+    var children = gallery.children;
+    for (var i = 0; i < children.length; i++) {
+      var tile = children[i];
+      window.makeTileControls(tile, window.imgState.results[i]);
+    }
+  };
+  window.renderGallery._hasSave = true;
+}
+</script>
+
+<script>
+window.blobToB64 = async function(blob) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onloadend = function() {
+      var dataUrl = reader.result;
+      var commaIndex = dataUrl.indexOf(',');
+      if (commaIndex !== -1) {
+        resolve(dataUrl.substring(commaIndex + 1));
+      } else {
+        resolve(dataUrl);
+      }
+    };
+    reader.onerror = function() {
+      reject(new Error('FileReader error'));
+    };
+    reader.readAsDataURL(blob);
+  });
+};
+
+window.readMeta = async function(blob) {
+  var buffer = await blob.arrayBuffer();
+  var bytes = new Uint8Array(buffer);
+  if (bytes.length < 2 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
+    return {};
+  }
+  var offset = 2;
+  var meta = {};
+  while (offset < bytes.length - 1) {
+    if (bytes[offset] !== 0xFF) {
+      offset++;
+      continue;
+    }
+    var marker = bytes[offset + 1];
+    if (marker === 0xD9) {
+      break;
+    }
+    if (marker === 0x00 || marker === 0xFF || (marker >= 0xD0 && marker <= 0xD7)) {
+      offset += 2;
+      continue;
+    }
+    if (offset + 3 >= bytes.length) {
+      break;
+    }
+    var lenHigh = bytes[offset + 2];
+    var lenLow = bytes[offset + 3];
+    var segmentLength = (lenHigh << 8) | lenLow;
+    if (segmentLength < 2) {
+      offset += 2;
+      continue;
+    }
+    if (marker === 0xFE) {
+      var textBytes = bytes.subarray(offset + 4, offset + 2 + segmentLength);
+      var text = new TextDecoder().decode(textBytes);
+      var newlineIndex = text.indexOf('\n');
+      if (newlineIndex !== -1) {
+        var prompt = text.substring(0, newlineIndex);
+        var rest = text.substring(newlineIndex + 1);
+        var modelMatch = rest.match(/^Model: (.*), Date: (.*)$/);
+        if (modelMatch) {
+          var model = modelMatch[1];
+          var dateStr = modelMatch[2];
+          var parsedDate = new Date(dateStr);
+          if (!isNaN(parsedDate.getTime())) {
+            meta = { prompt: prompt, model: model, ts: parsedDate.getTime() };
+            break;
+          }
+        }
+      }
+    }
+    offset += 2 + segmentLength;
+  }
+  return meta;
+};
+
+var refreshBtn = document.createElement('button');
+refreshBtn.id = 'img-refresh-btn';
+refreshBtn.textContent = '🔄';
+refreshBtn.title = 'refresh gallery';
+refreshBtn.addEventListener('click', function() {
+  window.loadGalleryFromFolder();
+});
+document.getElementById('img-save-row').appendChild(refreshBtn);
+
+window.loadGalleryFromFolder = async function() {
+  try {
+    var saveInput = document.getElementById('save-folder');
+    var folderString = saveInput.value.trim();
+    var namespace = null;
+    var folder = folderString;
+    var hashIndex = folderString.indexOf('#');
+    if (hashIndex !== -1) {
+      namespace = folderString.substring(0, hashIndex);
+      folder = folderString.substring(hashIndex + 1);
+    }
+    var dbHandle;
+    if (namespace !== null) {
+      dbHandle = await getDB(namespace);
+    } else {
+      dbHandle = await getDB();
+    }
+    var prefix = folder !== '' ? folder + '/' : '';
+    var keysList = await keys(IDBKeyRange.bound(prefix, prefix + String.fromCharCode(65535)), dbHandle);
+    window.imgState.results.splice(0, window.imgState.results.length);
+    for (var i = 0; i < keysList.length; i++) {
+      var key = keysList[i];
+      var blob = await read(key, dbHandle);
+      if (!(blob instanceof Blob) || blob.size < 100) {
+        continue;
+      }
+      var meta = await window.readMeta(blob);
+      var b64 = await window.blobToB64(blob);
+      window.imgState.results.push({
+        b64: b64,
+        media_type: 'image/jpeg',
+        model: meta.model || 'unknown',
+        prompt: meta.prompt || key,
+        ts: meta.ts || Date.now(),
+        stored: true,
+        savedKey: key,
+        savedNs: namespace
+      });
+    }
+    if (typeof window.renderGallery === 'function') {
+      window.renderGallery();
+    }
+  } catch (err) {
+    document.getElementById('status-bar').innerText = err.message;
+  }
+};
+
+window.loadGalleryFromFolder();
+</script>
+
+<script>
+var promptInput = document.getElementById('img-prompt');
+var storedPrompt = localStorage.getItem('apps_img_p');
+if (storedPrompt !== null) {
+  promptInput.value = storedPrompt;
+}
+promptInput.addEventListener('change', function() {
+  localStorage.setItem('apps_img_p', promptInput.value);
+});
+
+window.applyImageRecipe = function(entry) {
+  var promptEl = document.getElementById('img-prompt');
+  promptEl.value = entry.prompt;
+  promptEl.dispatchEvent(new Event('change'));
+  var selectEl = document.getElementById('model-select');
+  var found = false;
+  for (var i = 0; i < selectEl.options.length; i++) {
+    if (selectEl.options[i].value === entry.model) {
+      selectEl.value = entry.model;
+      selectEl.dispatchEvent(new Event('change'));
+      found = true;
+      break;
+    }
+  }
+};
+
+var gallery = document.getElementById('img-gallery');
+gallery.addEventListener('click', function(e) {
+  var target = e.target;
+  if (target.tagName === 'IMG' && target.closest) {
+    var resultEl = target.closest('.img-result');
+    if (resultEl) {
+      var children = gallery.children;
+      for (var i = 0; i < children.length; i++) {
+        if (children[i] === resultEl) {
+          var entry = window.imgState.results[i];
+          if (entry) {
+            window.applyImageRecipe(entry);
+          }
+          break;
+        }
+      }
+    }
+  }
+});
+</script>

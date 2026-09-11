@@ -1,0 +1,59 @@
+#games/minesweeper?e&w&p=TASK: output HTML wireframe for a windows 95 style minesweeper game
+  - your output is injected into an existing main element with id A that already exists on the page, do NOT create a main element, do NOT create any element with id A
+  - style the existing main id A with css: width 100vw, height 100vh, margin 0, padding 0, display flex, align-items center, justify-content center, background %23c0c0c0, overflow hidden
+  - single game panel with id ms-panel: background %23c0c0c0, classic win95 raised border (3px solid, top-left edges %23dfdfdf and %23ffffff, bottom-right edges %237b7b7b and %23000000), padding 6px, vertical flex column with 6px gaps, NO window chrome, NO titlebar, NO menu bar
+  - first child: difficulty row with id ms-difficulty, horizontal flex, 6px gap, containing three win95 raised buttons with labels Beginner, Intermediate, Expert and data-diff attributes beginner, intermediate, expert; the Beginner button starts with class active; class active makes a button look pressed (inset border)
+  - second child: header with id ms-header, win95 inset panel (sunken 3px border), horizontal flex with space-between, containing: mine counter with id ms-mines showing 010, reset button with id ms-reset (win95 raised button) showing 🙂, timer with id ms-time showing 000; counter and timer are led style: background %23000000, color %23ff0000, font-family monospace, font-weight bold, padding 2px 4px
+  - third child: board container with id ms-board, win95 inset panel (sunken 3px border), display grid, gap 0
+  - cells are rendered by javascript later, but define their css now: class ms-cell is a win95 raised button look (background %23c0c0c0, raised border), width var(--cell), height var(--cell), font-family monospace, font-weight bold, font-size calc(var(--cell) * 0.6), line-height 1, padding 0, display flex, align-items center, justify-content center, user-select none
+  - class ms-cell.open is flat inset: 1px solid %237b7b7b border, no raised edges
+  - class ms-cell.mine has background %23ff0000
+  - number color classes ms-cell.n1 through ms-cell.n8 with colors: n1 %230000ff, n2 %23008000, n3 %23ff0000, n4 %23000080, n5 %23800000, n6 %23008080, n7 %23000000, n8 %237b7b7b
+  - define css custom property --cell on :root with default 24px
+  - basic css reset: box-sizing border-box for all elements, margin 0 on body
+  - NO JAVASCRIPT
+  - DONT INCLUDE html/head/body tags just the wireframe
+&w&a=1&p=TASK: output a SCRIPT tag that sets up minesweeper game state
+  - create global object window.msDifficulties exactly: { beginner: { rows: 9, cols: 9, mines: 10 }, intermediate: { rows: 16, cols: 16, mines: 40 }, expert: { rows: 16, cols: 30, mines: 99 } }
+  - create global object window.msConfig with properties: difficulty string beginner, rows 9, cols 9, mines 10
+  - create global state variables on window: board (2d array indexed board[y][x], starts null), gameOver false, gameWon false, firstClick true, flagCount 0, openCount 0, seconds 0, timerId null
+  - create global function window.newGame that: clears window.timerId with clearInterval and sets it null, resets gameOver, gameWon, firstClick, flagCount, openCount and seconds to their initial values, sets window.board to null, sets innerText of id ms-mines to window.msConfig.mines padded to 3 digits, sets innerText of id ms-time to 000, sets id ms-reset text to 🙂, then if window.renderBoard exists calls it, then if window.fitBoard exists calls it
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that sets up minesweeper game state
+  - create global object window.msDifficulties exactly: { beginner: { rows: 9, cols: 9, mines: 10 }, intermediate: { rows: 16, cols: 16, mines: 40 }, expert: { rows: 16, cols: 30, mines: 99 } }
+  - create global object window.msConfig with properties: difficulty string beginner, rows 9, cols 9, mines 10
+  - create global state variables on window: board (2d array indexed board[y][x], starts null), gameOver false, gameWon false, firstClick true, flagCount 0, openCount 0, seconds 0, timerId null
+  - create global function window.newGame that: clears window.timerId with clearInterval and sets it null, resets gameOver, gameWon, firstClick, flagCount, openCount and seconds to their initial values, sets window.board to null, sets innerText of id ms-mines to window.msConfig.mines padded to 3 digits, sets innerText of id ms-time to 000, sets id ms-reset text to 🙂, then if window.renderBoard exists calls it, then if window.fitBoard exists calls it
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that renders the minesweeper board
+  - window.board is always indexed as board[y][x] where y is the row and x is the column
+  - create global function window.buildBoard that creates a 2d array sized window.msConfig.rows by window.msConfig.cols of cell objects { mine: false, open: false, flag: false, count: 0 } and assigns it to window.board (replacing it is fine, it is rebuilt every game)
+  - create global function window.renderBoard that: calls window.buildBoard(), gets element id ms-board, sets its style.gridTemplateColumns to repeat(window.msConfig.cols, var(--cell)), clears its innerHTML, then for every row y and column x creates a button element with class ms-cell, sets dataset.x to x and dataset.y to y, on left click calls window.revealCell(x, y), on contextmenu calls event.preventDefault() then window.toggleFlag(x, y), and appends it to the board
+  - read window.msConfig live every time, never cache rows or cols in outer variables
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag with the minesweeper game logic
+  - window.board is indexed board[y][x], and cell dom elements are children of id ms-board in row-major order, so the element for (x, y) is at child index y * window.msConfig.cols plus x
+  - create global function window.placeMines(safeX, safeY): randomly set mine true on exactly window.msConfig.mines cells of window.board, never on the safe cell or its 8 neighbors, then set each cell.count to its number of adjacent mines
+  - create global function window.revealCell(x, y): do nothing if window.gameOver or the cell is open or flagged; if window.firstClick is true call window.placeMines(x, y), set firstClick false, and start the timer: window.timerId = setInterval that increments window.seconds (cap at 999) and writes it padded to 3 digits into id ms-time; if the cell is a mine call window.loseGame(x, y) and stop; otherwise set cell.open true, increment window.openCount, add class open to its element, if cell.count is greater than 0 set the element text to the count and add the matching class n1 through n8, if count is 0 recursively reveal all unopened unflagged neighbors (flood fill); then call window.checkWin()
+  - create global function window.toggleFlag(x, y): do nothing if window.gameOver or the cell is open; flip cell.flag, set the element text to 🚩 or empty, update window.flagCount, set id ms-mines innerText to window.msConfig.mines minus window.flagCount padded to 3 digits
+  - create global function window.checkWin(): if window.openCount equals total cells minus window.msConfig.mines, set window.gameOver and window.gameWon true, clearInterval the timer, set id ms-reset text to 😎
+  - create global function window.loseGame(x, y): set window.gameOver true, clearInterval the timer, set id ms-reset text to 😵, reveal every mine cell by adding class open to its element, and add class mine to the clicked mine element
+  - clicking id ms-reset calls window.newGame()
+  - at the end of the script: if window.board is null, call window.newGame() once so the board renders immediately on page load
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that fits the game to the viewport
+  - create global function window.fitBoard that: computes cellSize as Math.floor of Math.min of (window.innerWidth * 0.95 divided by window.msConfig.cols) and (window.innerHeight * 0.80 divided by window.msConfig.rows), clamps it to a minimum of 8, then sets the css custom property --cell on document.documentElement to cellSize in px units
+  - always read window.msConfig.cols and window.msConfig.rows live inside the function, never cache them or any derived value
+  - add a window resize event listener that calls window.fitBoard()
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that wires up the difficulty selector and starts the game
+  - for each button inside id ms-difficulty add a click listener: read its data-diff attribute, look up window.msDifficulties for that key, and mutate window.msConfig IN PLACE (set difficulty, rows, cols, mines properties, NEVER replace the window.msConfig object itself), then remove class active from all buttons in id ms-difficulty and add it to the clicked one, then call window.newGame()
+  - after wiring all buttons, call window.newGame() once to start the game
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w

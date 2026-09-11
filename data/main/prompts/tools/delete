@@ -1,0 +1,18 @@
+#tools/delete?e&w&c=src&p=TASK: Write the complete tool file for the agent tool named delete
+  - PURPOSE: This file is a tool the chat agent calls to permanently delete a file from any namespace
+  - FORMAT: Raw JavaScript only, no script tags, no HTML, no markdown fences, no explanation
+  - Line 1 MUST be one single block comment in this exact style: /* delete - permanently delete a file. INPUT: a bare file name like old.txt for the current namespace, or namespace%23filename like docs%23old.txt for another namespace */
+  - The code you write IS the body of an async function whose only argument INPUT is a raw string, write top level statements ONLY, do NOT define a function, do NOT wrap the code in anything
+  - The kernel has NO delete global, look at how the kernel implements write, tx, queryDB and the FILES constant, then perform the delete by awaiting queryDB with tx in readwrite mode calling .delete(filename) on the object store
+  - NEVER redeclare or shadow kernel globals
+  - STEP 1: start one try block and trim INPUT inside it
+  - STEP 2: if the trimmed input is empty return the string Error: no file path provided
+  - STEP 3: find the first %23 in the input, everything before it is the namespace, everything after it is the filename, if there is no %23 the namespace is undefined and the whole input is the filename
+  - STEP 4: if a namespace was given await getDB(namespace) to get the database handle, tx needs a handle not a string, BE HYPER AWARE OF PROMISES
+  - STEP 5: first await the kernel read(filename, namespace), if the result is undefined or null return the string Error: file not found: followed by the input
+  - STEP 6: perform the delete and await it
+  - STEP 7: return the string Deleted: followed by the input
+  - Close the try with a catch that returns the string Error: followed by the error message
+  - Never throw, always return a string so the agent loop can continue
+  - OUTPUT: only the raw JavaScript code, nothing else
+&w

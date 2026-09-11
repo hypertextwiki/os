@@ -1,0 +1,82 @@
+#apps/calc?e&w&p=TASK: output HTML wireframe for a windows 95 style calculator
+  - your output is injected into an existing main element with id A that already exists on the page, do NOT create a main element, do NOT create any element with id A
+  - style the existing main id A with css: width 100vw, height 100vh, margin 0, padding 0, display flex, align-items center, justify-content center, background %23c0c0c0, overflow hidden
+  - single panel with id calc-panel: background %23c0c0c0, classic win95 raised border (3px solid, top-left edges %23dfdfdf and %23ffffff, bottom-right edges %237b7b7b and %23000000), padding 6px, vertical flex column with 6px gap, NO window chrome, NO titlebar, NO menu bar, width max-content
+  - first child: display with id calc-display, win95 inset panel (sunken 3px border), background %23ffffff, color %23000000, font-family monospace, font-weight bold, font-size calc(var(--u) * 0.5), text-align right, padding 4px 6px, overflow hidden, white-space nowrap, user-select none, initial text 0, width calc(var(--u) * 4 %2B 18px)
+  - second child: keypad with id calc-pad, display grid, grid-template-columns repeat(4, var(--u)), 6px gap
+  - every keypad button: class calc-btn, win95 raised button look (background %23c0c0c0, raised border), font-family monospace, font-weight bold, font-size calc(var(--u) * 0.35), line-height 1, padding 0, width var(--u), height var(--u), display flex, align-items center, justify-content center, user-select none, cursor pointer
+  - class calc-btn active state: selector .calc-btn.active makes the button look pressed with the win95 inset border
+  - give every button a data-key attribute for javascript to read later
+  - row 1: data-key "C" label C spanning 2 columns with width calc(var(--u) * 2 %2B 6px), data-key "CE" label CE, data-key "back" label ←
+  - row 2: data-key "7", data-key "8", data-key "9", data-key "/" label ÷
+  - row 3: data-key "4", data-key "5", data-key "6", data-key "*" label ×
+  - row 4: data-key "1", data-key "2", data-key "3", data-key "-" label −
+  - row 5: data-key "0", data-key "." label ., data-key "neg" label ±, data-key "%2B" label %2B
+  - row 6: data-key "=" label = spanning all 4 columns with width 100 percent
+  - define css custom property --u on :root with default 48px, it is the single unit that sizes the whole calculator
+  - basic css reset: box-sizing border-box for all elements, margin 0 on body
+  - NO JAVASCRIPT
+  - DONT INCLUDE html/head/body tags just the wireframe
+&w&a=1&p=TASK: output a SCRIPT tag that sets up calculator state and core functions
+  - create global object window.calcState with properties: display string "0", stored null, op null, fresh true
+  - create global function window.calcRender that sets innerText of id calc-display to window.calcState.display
+  - create global function window.calcDigit(d): if window.calcState.fresh is true or display is "0", set display to d, otherwise append d to display, cap display length at 14 characters, set fresh false, then call window.calcRender()
+  - create global function window.calcDot(): if fresh is true set display to "0." and fresh false, else if display does not already contain a dot append one, then call window.calcRender()
+  - create global function window.calcNegate(): if display is not "0", toggle a leading minus sign on display, then call window.calcRender()
+  - always mutate window.calcState in place, never replace the object itself
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag with the calculator math and clearing logic
+  - always read window.calcState live and mutate it in place, never replace it
+  - create global function window.calcCompute(a, b, op) returning the numeric result of a and b where op "%2B" means add, "-" means subtract, "*" means multiply, "/" means divide; division by zero returns the string "Error"
+  - create global function window.calcOp(op): if window.calcState.op is not null and fresh is false, first compute the pending operation on stored and the numeric value of display, format it, and put the result in display; then set stored to the numeric value of display, set op to the given op, set fresh true, then call window.calcRender()
+  - create global function window.calcEquals(): if op is null do nothing; compute window.calcCompute(stored, numeric value of display, op), format the result with parseFloat(result.toFixed(10)) then String to trim floating point noise, if the result is "Error" use it as-is, set display to the final string, set stored null, op null, fresh true, then call window.calcRender()
+  - create global function window.calcClear(): full reset, display "0", stored null, op null, fresh true, then call window.calcRender()
+  - create global function window.calcClearEntry(): set display to "0" and fresh true only, keep the pending stored value and op untouched, then call window.calcRender()
+  - create global function window.calcBack(): if fresh is true do nothing, otherwise remove the last character of display, if it becomes empty or just "-" set it to "0", then call window.calcRender()
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that wires up the calculator buttons
+  - for each button inside id calc-pad read its data-key attribute and bind a click listener
+  - if data-key is a digit 0 through 9 call window.calcDigit with it
+  - if data-key is "." call window.calcDot()
+  - if data-key is "neg" call window.calcNegate()
+  - if data-key is "%2B", "-", "*", or "/" call window.calcOp with it
+  - if data-key is "=" call window.calcEquals()
+  - if data-key is "C" call window.calcClear()
+  - if data-key is "CE" call window.calcClearEntry()
+  - if data-key is "back" call window.calcBack()
+  - also bind pointerdown on each button to add class active, and pointerup and pointerleave to remove it, so taps give pressed-button feedback
+  - call window.calcRender() once at the end
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that implements keyboard bindings for the calculator
+  - add a keydown event listener on window
+  - if event.key is a digit 0 through 9 call window.calcDigit with it
+  - if event.key is "." or "," call window.calcDot()
+  - if event.key is "%2B", "-", "*", or "/" call window.calcOp with it
+  - if event.key is "Enter" or "=" call event.preventDefault() then window.calcEquals()
+  - if event.key is "n" call window.calcNegate()
+  - after handling any of these keys, briefly flash the matching button in id calc-pad by matching its data-key, adding class active for 100ms then removing it, so keyboard users get visual feedback
+  - do NOT handle Backspace, Delete, or Escape in this script
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that implements the clearing keyboard keys for the calculator
+  - add a keydown event listener on window
+  - if event.key is "Backspace" call window.calcBack() then flash the button with data-key "back" in id calc-pad by adding class active for 100ms then removing it
+  - if event.key is "Delete" call window.calcClearEntry() then flash the button with data-key "CE" the same way
+  - if event.key is "Escape" call window.calcClear() then flash the button with data-key "C" the same way
+  - handle nothing else
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that fits the calculator to the viewport
+  - the whole app scales from the single css custom property --u on :root, every visible dimension of the calculator derives from --u
+  - create global function window.fitCalc that: computes u as Math.floor of Math.min of (window.innerWidth * 0.98 divided by 4) and (window.innerHeight * 0.98 divided by 7), clamps it to a minimum of 24, then sets the css custom property --u on document.documentElement to u in px units
+  - the number 4 is the keypad column count, the number 7 is the vertical unit count (1 display row plus 6 keypad rows)
+  - the calculator must fill nearly all available space in every orientation: when the viewport is wider than it is tall, height is the binding dimension and the calculator scales up until it nearly touches top and bottom; when the viewport is taller than it is wide, width is the binding dimension and it scales up until it nearly touches left and right; Math.min of the two ratios achieves exactly this
+  - never cache window dimensions or any derived value outside the function, always read them live inside it
+  - add a window resize event listener that calls window.fitCalc()
+  - call window.fitCalc() once immediately so the calculator is sized on first load
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w
