@@ -26,7 +26,7 @@ This qr encodes an html file turning any browser since the 1990s into an offline
 ### Terminal Commands:
 ```bash
 # clone the project and dependencies
-git clone --recursive https://github.com/hypertextwiki/os
+git clone https://github.com/hypertextwiki/os
 
 # install dependencies
 npm run install
@@ -2641,10 +2641,147 @@ The model samples from your wording. Ambiguity IS the bug.
 
 </context>
 
-<context path="data/main/docs/hyperprompting-guide.md">
-# Hyperprompting Guide — Lessons from the Skybiome Build
+<context path="data/main/docs/agent.md">
+# The Chat Agent — `#apps/chat`
 
-Instructions for the assistant when the user is working in the QRx hyperprompting protocol. Distilled from a full multi-chain build session (a Bluesky particle-life simulation) including every bug class we hit and how it was fixed (see <context src="./data/main/prompts/skybiome.html" />)
+A chat app that is architecturally an **agent harness**: event-based, tool-driven, extensible by construction. It starts as a simple chatbot but every subsystem (loop, tools, skills, identity, compaction) is an independent chain in `#prompts/apps/chat`, and every capability is a file in the dataverse. Regenerate any piece without touching the others.
+
+---
+
+## Architecture
+
+### Event bus
+
+`window.chatEvents` with `on(name, fn)` / `emit(name, data)`. Events: `user, delta, assistant, tool_call, tool_result, compact, plan, status, error, done`. Renderers are subscribers; the agent loop is a publisher. Nothing in the loop touches the DOM directly — UI is a downstream consumer of events, so new listeners (logging, persistence, alternate renderers) attach without modifying the loop.
+
+### Globals
+
+| Global | Purpose |
+| :--- | :--- |
+| **`window.chat`** | The raw conversation array. Append-only; compaction never mutates it (view-swap pattern). There is deliberately **no persistence layer** — chat is a global variable. Persistence is a tape trick, not code |
+| **`window.agentPlan`** | Current plan object, surfaced in the prompt (inert until the plan tool ships) |
+| **`window.agentScratchpad`** | Key-value working memory (inert until remember/recall ship) |
+| **`window.stopAgent`** | Set true to halt the loop at the next iteration |
+| **`window.chatSummary`** | `{ text, upTo }` — the rolling compaction summary |
+| **`window.abortCtrl`** | AbortController for the in-flight streaming request |
+
+### The agent loop (ReAct)
+
+`window.runAgent(text)` runs a while-loop over `fetchAI`. The model replies in one of two formats:
+
+```
+<<ACTION: tool-name>>
+tool input here
+```
+or
+```
+<<ANSWER>>
+final response here
+```
+
+- `parseAction` / `parseAnswer` are regex parsers over the raw reply.
+- An ACTION executes the named tool; its return string is pushed as a user-role **observation** and the loop continues.
+- An ANSWER terminates the loop. An *empty* answer is still a valid termination (explicit null check — a falsy-string bug here once caused infinite self-answering).
+- Breakers: 7 consecutive errors, or 3 consecutive format failures (after which the raw reply is emitted as the answer, gracefully).
+
+### Prompt assembly (wrapper stack)
+
+`window.buildAgentPrompt()` is layered by wrapper chains, innermost first:
+
+1. **Base**: system-file (via `read`) → localStorage `s` → built-in default
+2. **OUTPUT FORMAT rules** + concrete EXAMPLE block + AVAILABLE TOOLS + CURRENT PLAN + WORKING MEMORY
+3. **SKILLS** section (chain 8): one-line descriptions only
+4. **Identity** (chain 10): `<soul>` / `<user>` files prepended; eager `<context file="...">` blocks; the `[[wikilink]]` rule — *"treat each [[link]] as a file name and load it with the read tool before answering"*
+
+Wrapper house rules: unique capture variable names per wrapper (top-level `var` is a shared global), idempotency flags, never self-call the wrapped name. See the hyperprompting guide §4.
+
+### Streaming fetch
+
+`window.fetchAI(systemPrompt)` — SSE streaming against the configured host, AbortController-backed, messages = `[{role:'system',...}].concat(window.chat)`. Emits `delta` / `assistant` / `done` / `error`.
+
+---
+
+## Configuration (row 1 & 2)
+
+| Field | localStorage | Meaning |
+| :--- | :--- | :--- |
+| model / host / api key | `m` / `h` / `k` | Prefilled from the kernel's own `?m ?h ?k` tape commands |
+| compact threshold | `ct` | The model's **total context capacity** in tokens (not a tripwire — see Compaction) |
+| system file | `sf` | File read as the base system prompt |
+| context files | `cf` | Comma-separated files eagerly injected into the prompt |
+| tools folder | `tf` | Prefix for tool discovery (default `tools/`) |
+| skills folder | `kf` | Prefix for skills discovery (default `skills/`) |
+
+---
+
+## Tools
+
+Capability is **structural**: the agent can do exactly what exists under `tools/`, nothing more. Read-only mode = don't ship write/delete. Tool discovery lists files by prefix; the leading `/* */` comment is extracted as the tool's description — the only documentation the model ever sees.
+
+Contract: each file is raw JS, the body of an async function with one string argument `INPUT`, returning a string. Errors are strings, never throws.
+
+Shipped tools (each generated by its own chain in `#prompts/tools/*`):
+
+| Tool | INPUT | Behavior |
+| :--- | :--- | :--- |
+| **`read`** | `filename` or `namespace#filename` | Reads any file from any namespace; splits the `#` itself (kernel `read` takes key and namespace separately) |
+| **`list-files`** | empty, `prefix/`, `ns#`, or `ns#prefix/` | Newline-separated key listing via `keys()` + `IDBKeyRange`; no cap (compaction absorbs big listings) |
+| **`write`** | first line = path, remaining lines = content | Creates or overwrites; returns `Wrote N characters to path` |
+| **`delete`** | `filename` or `namespace#filename` | Structural `.delete(key)` via `queryDB(tx('readwrite', db))`; checks existence first because IDB delete succeeds silently on missing keys |
+
+**Never "delete" by writing `''`** — empty string is the sync layer's *stub* marker ("not yet fetched"), not absence. The file resurrects on sync and empty reads fall back to the `main` namespace. Deletion is structural or nothing.
+
+A **move** operation needs no tool: it's a *skill* chaining read → write → verify → delete.
+
+---
+
+## Skills
+
+Markdown files under `skills/` with a `/* description */` header line. Only the one-line descriptions enter the prompt (~50 tokens each); the agent loads a skill body on demand via the `read` tool. Progressive disclosure: the QRx filesystem *is* the skills runtime — no MCP layer, no eager schema dumping.
+
+---
+
+## Compaction
+
+`compact-threshold` = the model's **total context capacity** in tokens, user-declared (the kernel can't know what model you're pointing at). All numbers derive from it:
+
+| Parameter | Value | Lineage |
+| :--- | :--- | :--- |
+| Trigger | 80% of capacity | Claude Code fires at ~83.5% with a hardcoded buffer; running hotter leaves no room for the summarizer call itself |
+| Chunk size | 40% of capacity | OpenClaw `BASE_CHUNK_RATIO = 0.4` — chunk + instructions + running summary + output always fit in one call |
+| Raw tail | ~10% of capacity | The most recent messages kept verbatim so the model retains immediate continuity; mirrors Codex's ~20k-token raw preservation on a 200k window |
+| Safety margin | ×1.2 | OpenClaw `SAFETY_MARGIN` — char estimates undercount |
+| Token estimate | chars ÷ 4 | English rule of thumb; a real tokenizer can't ship because the model is user-swappable. Imprecision is absorbed by the margin and chunk slack |
+
+Algorithm: map (summarize each 40% chunk) → recursive reduce (merge summaries until they fit) → view-swap: `window.chat` is *temporarily* pointed at `[summary] + [raw tail]` during the next `fetchAI` call, then restored. The raw log is never mutated.
+
+---
+
+## Persistence model
+
+None, by design. `window.chat` dies with the page. Persistence arrives later as a tape trick — serializing the array into a file is `#chats/260908?x=write(JSON.stringify(chat))`, and restoring is a `read` away. No persistence layer will ever be coded into the app.
+
+---
+
+## Current limits (honest assessment)
+
+- **Multi-step tasks: yes.** The loop iterates tool calls until ANSWER; multi-hop "list → read → answer" works today.
+- **Long-horizon within a session: partial.** Compaction prevents overflow death, but `agentPlan` and `agentScratchpad` are inert — the model's only working memory is the transcript, which compaction steadily compresses.
+- **Long-horizon across sessions: no.** No persistence yet (see above).
+
+Planned next chains: memory tools (`remember` / `recall` / `plan` — pending a proper literature pass on agent memory design), per-message edit / delete / rerun buttons (rerun = truncate-and-replay, no undo), save/load chat buttons, and the `move-file` skill.
+
+---
+
+## The north star
+
+Self-hosting: a chat that can create and debug the system it runs on. The harness is the prerequisite — every piece above exists so that "agent, fix your own chain file and regenerate yourself" is a conversation, not a feature.
+</context>
+
+<context path="data/main/docs/hyperprompting-guide.md">
+# Hyperprompting Guide — Lessons from the Skybiome and Chat-Agent Builds
+
+Instructions for the assistant when the user is working in the QRx hyperprompting protocol. Distilled from two full multi-chain build sessions: a Bluesky particle-life simulation (see <context src="./data/main/prompts/skybiome.html" />) and the `#apps/chat` agent harness (see <context src="./data/main/prompts/apps/chat" /> and <context src="./data/main/docs/tools/agent.md" />).
 
 ---
 
@@ -2652,11 +2789,17 @@ Instructions for the assistant when the user is working in the QRx hyperpromptin
 
 - The URL fragment is a sequential machine tape. `#filename?` followed by `&flag=value` steps.
 - The tape drives an accumulator (`v`) that becomes the generated file. `&w` writes the accumulator to the database. `&a=1` switches to append mode.
-- **Chain shape:** every chain starts with `&a=1` and ends with `&w`. The opening is `#name.html?e&w` (echo reset + write), then each chain is `&a=1&p=TASK: ...&w`.
+- **Chain shape:** every chain starts with `&a=1` and ends with `&w`. The opening is `#name?e&w` (echo reset + write), then each chain is `&a=1&p=TASK: ...&w`.
 - Newlines only ever appear *inside* `&p=` prompt values. Never put a newline between `&w` and `&a=1` — the browser reads it as a literal return character and breaks the tape.
 - The generated code is concatenated scripts in one file. Each `&p=` step should output exactly one SCRIPT tag (or style/fragment), nothing more.
 - The executing model has **no conception of the hyperprompt protocol**. Never instruct it about escaping, the tape, or the kernel. It just sees plain English and emits pure JS. Only the tape author (you, the assistant) handles URL encoding: `%3F` for `?`, `%26` for `&`, `%2B` for `+`, `%23` for `#` inside prompt values.
 - A tape is executable code. Never author `&k=` (API keys) into shared tapes, and never run a stranger's tape with secrets in localStorage — `?x=` can read them.
+
+### Tape integrity (hard-won)
+
+- **Exactly one raw `?` per tape.** The kernel splits the hash on `?` and keeps only the filename and the first query segment. A raw `?` anywhere inside a value — a JavaScript ternary is the classic offender — silently truncates the tape. If the truncation lands before the final `&w`, the chain *runs* and generates but *never writes*. Symptom: "I ran it three times and nothing persisted." Before delivering any tape, count the raw `?` characters: the answer must be 1.
+- Raw `=` inside values is safe (only the first `=` splits a param). Everything else structural must be encoded.
+- Chain file house format: `?p=TASK:` on the same line as the tape start, sub-points as two-space-indented hyphen lines, no trailing periods, `&w` on its own closing line.
 
 ## 2. The Prime Directive
 
@@ -2679,59 +2822,77 @@ The model samples from your wording. Ambiguity IS the bug.
 - If a value must be live-tunable later: put it on a `window.*` config object and require the loop to **read it live every frame**. Forbid caching derived values (a precomputed `RADIUS_SQ` silently kills a radius slider).
 - Cross-chain mutation contract: **mutate shared objects in place, never replace them** (`window.forceMatrix`, `window.simConfig`) — earlier scripts may hold references.
 
-## 4. External APIs — verify, don't assume
+### Prompting weaker generator models
+
+When the generating model is small, terse prompts under-specify. Switch to maximally descriptive grammar:
+
+- Numbered imperative steps (`STEP 1: ...`, `STEP 2: ...`) instead of prose paragraphs.
+- Exact strings to copy where format matters ("Line 1 MUST be one single block comment in this exact style: ...").
+- Explicit anti-patterns for every failure you've observed: "do NOT define a function", "NEVER declare var read". Weak models don't infer what not to do.
+- Point at the kernel instead of explaining it: `?c=src` plus "look at how the kernel implements the global read(k, d) and reimplement the same split" beats two paragraphs of mechanics, and keeps the chain self-contained.
+
+## 4. Wrapper Chains (stacking behavior without regenerating old chains)
+
+Late chains often need to wrap a function an earlier chain defined (e.g. appending sections to a prompt builder). The pattern is `var prevThing = window.thing; window.thing = wrapper`. Three rules, all learned from production bugs:
+
+- **Top-level `var` in a classic script is a SHARED GLOBAL.** Two wrapper chains that both declare `var prevBuild` collide: the second capture overwrites the first, the first wrapper then calls itself, and you get `Maximum call stack size exceeded`. Every capture variable gets a unique name (`prevBuildSkills`, `prevBuildIdentity`, `prevFetchCompact`).
+- **Idempotency flags.** Re-running a wrapper chain must not double-wrap. Guard with `window._hasThing` flags.
+- **Never self-call.** A wrapper must never invoke its own `window.*` name inside its body — call the captured previous function.
+
+## 5. Event Rewiring
+
+When a later chain replaces the behavior of wired-up DOM elements, clone-and-rebind **every element that carries a listener** — not just the obvious one. Cloning the submit button but not the textarea leaves the old Ctrl+Enter listener alive: it fires first on the stale path, clears the input, and the new handler no-ops on empty text. Symptom: "I clicked submit and nothing from the new chain ran."
+
+## 6. External APIs — verify, don't assume
 
 - **Read the docs every single time, even if you checked earlier in the session.** Context is not memory. (User's explicit rule, stated forcefully.)
 
-## 5. Debugging workflow that worked
+## 7. Debugging workflow that worked
 
 1. Get the actual generated file from the user; grep/read it before theorizing.
-2. Classify the bug: API/auth, spec-ambiguity, cross-chain contract, or pure CSS.
+2. Classify the bug: API/auth, spec-ambiguity, cross-chain contract, tape-integrity, or pure CSS.
 3. Give the smallest possible chain fix — quote the exact replacement bullet(s), or the full chain segment if the user asks (never make them piece fragments together).
 4. Binary answers when the user asks a binary question ("should I see dots yet?" → "yes, because…"). No tape rewrites unless asked.
 5. Console-verifiable checks are gold (`window.particles[0].x` vs `window.cam`) — offer them so the user can confirm a diagnosis without editing anything.
-6. "Works on localhost, fails on GitHub Pages" is almost always a **stub hydration** bug:
-   localhost's boot/sync network-first read() masks empty stubs. Check the key's
-   IndexedDB value — `''` means it was never hydrated.
-7. The kernel strips the query from location.hash into `localStorage._q` after the first
-   run, so the bootloader only sees query keys in the hash on the FIRST load. Repro
-   every bug twice: fresh profile (incognito) and warm profile take different paths.
-8. Ordering: boot/* files run before the tape on every navigation; `main:ready` fires
-   during hydrate. A listener registered in a boot file sees tape-installed globals.6. "Works on localhost, fails on GitHub Pages" is almost always a **stub hydration** bug:
-   localhost's boot/sync network-first read() masks empty stubs. Check the key's
-   IndexedDB value — `''` means it was never hydrated.
-7. The kernel strips the query from location.hash into `localStorage._q` after the first
-   run, so the bootloader only sees query keys in the hash on the FIRST load. Repro
-   every bug twice: fresh profile (incognito) and warm profile take different paths.
-8. Ordering: boot/* files run before the tape on every navigation; `main:ready` fires
-   during hydrate. A listener registered in a boot file sees tape-installed globals.
+6. "Works on localhost, fails on GitHub Pages" is almost always a **stub hydration** bug: localhost's boot/sync network-first read() masks empty stubs. Check the key's IndexedDB value — `''` means it was never hydrated.
+7. The kernel strips the query from location.hash into `localStorage._q` after the first run, so the bootloader only sees query keys in the hash on the FIRST load. Repro every bug twice: fresh profile (incognito) and warm profile take different paths.
+8. Ordering: boot/* files run before the tape on every navigation; `main:ready` fires during hydrate. A listener registered in a boot file sees tape-installed globals.
+9. A generated file that duplicates a chain's script is usually harmless (redefines the same globals) — but check the chain file for a duplicated link before assuming.
+10. When the same tape "ran but didn't write", suspect tape truncation (a raw `?` in a value) before suspecting the model.
 
-## 6. Dependencies between files (the read idiom)
+## 8. Filesystem Semantics (what values mean)
 
-- **There is no import statement — `read()` IS the import.** A file that needs another
-  file's globals: `read('windows').then(c => { (new Function(G, 'v', 'arg', c))(this, void 0, ''); /* globals now live */ })`.
-  Parallel deps: `Promise.all(['a','b'].map(k => read(k))).then(...)`.
-- **Stubs are zero-byte.** Bootloaders write every indexed key as `''` (an unexplored
-  node) and only pre-hydrate the target key, URL query keys, and `boot/*`. Anything
-  else your code touches is empty until something reads it.
-- **Reads hydrate on miss on every host.** Server: `boot/sync` makes read() network-first
-  via POST /read. Static (GitHub Pages): the bootloader wraps read() to GET
-  `data/<ns>/<key>` (main-namespace fallback) and caches it into IndexedDB. The idiom
-  works everywhere — but only through `read()`, never raw IndexedDB access.
-- **Assert after importing.** An unhydrated dep fails three hops later as
-  `window.foo is not a function` with a minified stack. After eval, check
-  `typeof window.theThing === 'function'` and throw naming the missing *node*
-  (`missing dep: windows`), never the symbol.
-- **No dependency declarations** — no frontmatter, no manifests. The graph may be
-  unbounded; crawling IS the traversal. Revisit only if a measured waterfall hurts.
+- **`''` means "stub, not yet fetched" — NOT "deleted".** The bootloader stubs every indexed key as an empty string so it appears in listings without a full fetch, and network-first reads treat an empty result as "go fetch it." Writing `''` to a key therefore creates a zombie: sync may resurrect the content, and kernel `read()` treats empty as falsy and silently falls back to the `main` namespace. **Deletion must be structural** (`tx('readwrite', db).delete(key)`), never a value.
+- **Path syntax:** `namespace#filename` splits at the `#` — namespace is the IndexedDB database name, filename is the key inside it. Bare filename reads the current namespace (with `main` fallback). Kernel `read(k, d)` takes the two parts separately; it does NOT parse the `#` form — callers split it themselves.
+- `read(k, d)` accepts a string namespace and resolves it (`getDB` internally). `keys(q, d)` does NOT — `d` must be a database handle, so `await getDB(ns)` first.
 
-## 7. Working with this user (read this)
+## 9. Tool Files (agent-callable files)
+
+Tools are plain JS files (e.g. `tools/read`) discovered by prefix and executed by the agent harness. They are their own generative chains (`#prompts/tools/read` → `#tools/read?e&w&c=src&p=...&w`), one per tool, each independently regenerable.
+
+- The file is **raw JavaScript** — no script tags, no HTML, no fences.
+- **The code IS the body of an async function** whose only argument `INPUT` is the raw string the agent wrote after its action line. Say this explicitly in the prompt, or weak models wrap everything in an unused function definition (the tool returns `undefined` forever) or write `var read = ...` and shadow the kernel global into infinite recursion.
+- Never redeclare or shadow kernel globals (`read`, `write`, `keys`, `getDB`, `queryDB`, `tx`, `IDBKeyRange`).
+- **Line 1 is a single `/* */` block comment** describing the tool and its INPUT format with examples. This comment is the tool's *entire* interface documentation — the agent sees only that line in its prompt. Nobody human reads it, so be verbose.
+- **Errors are returned as strings, never thrown.** A thrown error kills the agent loop; a string (`Error: file not found: x`) is just an observation the model can reason about and recover from.
+- INPUT is one raw string by design: the model emits text, and a raw string is the zero-loss transport — no JSON escaping tax on file contents. Multi-field tools define a micro-format (e.g. write: first line is the path, the rest is content). Tools that genuinely need structure can JSON.parse(INPUT) internally — structure is opt-in per tool, not a tax on every call.
+
+## 10. Dependencies between files (the read idiom)
+
+- **There is no import statement — `read()` IS the import.** A file that needs another file's globals: `read('windows').then(c => { (new Function(G, 'v', 'arg', c))(this, void 0, ''); /* globals now live */ })`. Parallel deps: `Promise.all(['a','b'].map(k => read(k))).then(...)`.
+- **Stubs are zero-byte.** Bootloaders write every indexed key as `''` (an unexplored node) and only pre-hydrate the target key, URL query keys, and `boot/*`. Anything else your code touches is empty until something reads it.
+- **Reads hydrate on miss on every host.** Server: `boot/sync` makes read() network-first via POST /read. Static (GitHub Pages): the bootloader wraps read() to GET `data/<ns>/<key>` (main-namespace fallback) and caches it into IndexedDB. The idiom works everywhere — but only through `read()`, never raw IndexedDB access.
+- **Assert after importing.** An unhydrated dep fails three hops later as `window.foo is not a function` with a minified stack. After eval, check `typeof window.theThing === 'function'` and throw naming the missing *node* (`missing dep: windows`), never the symbol.
+- **No dependency declarations** — no frontmatter, no manifests. The graph may be unbounded; crawling IS the traversal. Revisit only if a measured waterfall hurts.
+
+## 11. Working with this user (read this)
 
 - They are the architect; you are the harness. They run generations themselves via API. Your job: protocol-correct chains, precise diagnosis, honest tradeoffs.
 - **Do not create files unless asked.** Deliver chains inline in code blocks.
 - **Do not add features unasked** (collapsible sections, extra buttons). Scope creep in chains = bugs in output.
 - Keep responses short. When the user is frustrated, get shorter. Never narrate your process; show the fix.
 - They correct sharply when you break protocol ("the chain is the spec") — accept immediately, restate the principle to confirm understanding, move on.
+- When the user questions a number or a design choice, answer with its actual lineage: researched constant, shipped-system precedent, or heuristic guess. Never dress a guess up as a derivation. If you don't know, say so and go research it again — search context does not persist across turns.
 
 </context>
 
@@ -2763,7 +2924,7 @@ This qr encodes an html file turning any browser since the 1990s into an offline
 ### Terminal Commands:
 ```bash
 # clone the project and dependencies
-git clone --recursive https://github.com/hypertextwiki/os
+git clone https://github.com/hypertextwiki/os
 
 # install dependencies
 npm run install
@@ -3304,7 +3465,10 @@ setTimeout(async () => {
     "start": "npm run build && node --env-file=.env servers/local.js",
     "build": "npm run build:llms && vite build ",
     "build:github": "npm run build:llms && GITHUB_PAGES=true node servers/github.js && GITHUB_PAGES=true vite build",
-    "build:llms": "node scripts/copy-src.js && node scripts/build-llms.js"
+    "build:llms": "node scripts/copy-src.js && node scripts/build-llms.js",
+    "build:cloudflare": "node --env-file-if-exists=.env servers/github.js && vite build",
+    "dev:cloudflare": "npm run build:cloudflare && npx wrangler dev",
+    "deploy:cloudflare": "npm run build:cloudflare && npx wrangler deploy"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
@@ -5384,6 +5548,86 @@ media:
 draft
 </context>
 
+<context path="data/reddit/posts/hyperprompting/260904-sweeping-for-mines.md">
+HUZZAH!!! I HAVE RETURNETH
+i keep thinking about deleting these subs, my githubs, and everything betwixt bc after all the whole entire point of what i am stealthily demonstrating to you is Radical Gnosis thru technical sovereignty 
+https://www.reddit.com/r/labofoz/comments/1vlr2i3/towards_building_a_radio_based_decentralized/
+if you command an agent to fish ("make a minesweeper clone") it will think loop for a day, but feed an agent hyperprompts and they get better and BETTER AND BETTER everyday
+the screenshot above can be generated on a Pixel 8 Pro with 12GB RAM for free but it takes a long fucking time, swipe right though and you will see how you can openroute it for a dime
+in the previous minesweeper example we used the hyperprompt:
+#apps/minesweeper?e&w&p=Build a fully working minesweeper app&w
+that's nice and simple but what exactly do you want? do you want mobile support, responsive layouts, do you want the window chrome or will it be embedded into one?
+that simple prompt is enough to get a frontier model to calculate 42
+where? were we're going there aint a #calc so here i'll show ya:
+[to humans reading this: skip it it's an ai slopped hyperprompt]:
+#games/minesweeper?e&w&p=TASK: output HTML wireframe for a windows 95 style minesweeper game
+  - your output is injected into an existing main element with id A that already exists on the page, do NOT create a main element, do NOT create any element with id A
+  - style the existing main id A with css: width 100vw, height 100vh, margin 0, padding 0, display flex, align-items center, justify-content center, background %23c0c0c0, overflow hidden
+  - single game panel with id ms-panel: background %23c0c0c0, classic win95 raised border (3px solid, top-left edges %23dfdfdf and %23ffffff, bottom-right edges %237b7b7b and %23000000), padding 6px, vertical flex column with 6px gaps, NO window chrome, NO titlebar, NO menu bar
+  - first child: difficulty row with id ms-difficulty, horizontal flex, 6px gap, containing three win95 raised buttons with labels Beginner, Intermediate, Expert and data-diff attributes beginner, intermediate, expert; the Beginner button starts with class active; class active makes a button look pressed (inset border)
+  - second child: header with id ms-header, win95 inset panel (sunken 3px border), horizontal flex with space-between, containing: mine counter with id ms-mines showing 010, reset button with id ms-reset (win95 raised button) showing 🙂, timer with id ms-time showing 000; counter and timer are led style: background %23000000, color %23ff0000, font-family monospace, font-weight bold, padding 2px 4px
+  - third child: board container with id ms-board, win95 inset panel (sunken 3px border), display grid, gap 0
+  - cells are rendered by javascript later, but define their css now: class ms-cell is a win95 raised button look (background %23c0c0c0, raised border), width var(--cell), height var(--cell), font-family monospace, font-weight bold, font-size calc(var(--cell) * 0.6), line-height 1, padding 0, display flex, align-items center, justify-content center, user-select none
+  - class ms-cell.open is flat inset: 1px solid %237b7b7b border, no raised edges
+  - class ms-cell.mine has background %23ff0000
+  - number color classes ms-cell.n1 through ms-cell.n8 with colors: n1 %230000ff, n2 %23008000, n3 %23ff0000, n4 %23000080, n5 %23800000, n6 %23008080, n7 %23000000, n8 %237b7b7b
+  - define css custom property --cell on :root with default 24px
+  - basic css reset: box-sizing border-box for all elements, margin 0 on body
+  - NO JAVASCRIPT
+  - DONT INCLUDE html/head/body tags just the wireframe
+&w&a=1&p=TASK: output a SCRIPT tag that sets up minesweeper game state
+  - create global object window.msDifficulties exactly: { beginner: { rows: 9, cols: 9, mines: 10 }, intermediate: { rows: 16, cols: 16, mines: 40 }, expert: { rows: 16, cols: 30, mines: 99 } }
+  - create global object window.msConfig with properties: difficulty string beginner, rows 9, cols 9, mines 10
+  - create global state variables on window: board (2d array indexed board[y][x], starts null), gameOver false, gameWon false, firstClick true, flagCount 0, openCount 0, seconds 0, timerId null
+  - create global function window.newGame that: clears window.timerId with clearInterval and sets it null, resets gameOver, gameWon, firstClick, flagCount, openCount and seconds to their initial values, sets window.board to null, sets innerText of id ms-mines to window.msConfig.mines padded to 3 digits, sets innerText of id ms-time to 000, sets id ms-reset text to 🙂, then if window.renderBoard exists calls it, then if window.fitBoard exists calls it
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that sets up minesweeper game state
+  - create global object window.msDifficulties exactly: { beginner: { rows: 9, cols: 9, mines: 10 }, intermediate: { rows: 16, cols: 16, mines: 40 }, expert: { rows: 16, cols: 30, mines: 99 } }
+  - create global object window.msConfig with properties: difficulty string beginner, rows 9, cols 9, mines 10
+  - create global state variables on window: board (2d array indexed board[y][x], starts null), gameOver false, gameWon false, firstClick true, flagCount 0, openCount 0, seconds 0, timerId null
+  - create global function window.newGame that: clears window.timerId with clearInterval and sets it null, resets gameOver, gameWon, firstClick, flagCount, openCount and seconds to their initial values, sets window.board to null, sets innerText of id ms-mines to window.msConfig.mines padded to 3 digits, sets innerText of id ms-time to 000, sets id ms-reset text to 🙂, then if window.renderBoard exists calls it, then if window.fitBoard exists calls it
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that renders the minesweeper board
+  - window.board is always indexed as board[y][x] where y is the row and x is the column
+  - create global function window.buildBoard that creates a 2d array sized window.msConfig.rows by window.msConfig.cols of cell objects { mine: false, open: false, flag: false, count: 0 } and assigns it to window.board (replacing it is fine, it is rebuilt every game)
+  - create global function window.renderBoard that: calls window.buildBoard(), gets element id ms-board, sets its style.gridTemplateColumns to repeat(window.msConfig.cols, var(--cell)), clears its innerHTML, then for every row y and column x creates a button element with class ms-cell, sets dataset.x to x and dataset.y to y, on left click calls window.revealCell(x, y), on contextmenu calls event.preventDefault() then window.toggleFlag(x, y), and appends it to the board
+  - read window.msConfig live every time, never cache rows or cols in outer variables
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag with the minesweeper game logic
+  - window.board is indexed board[y][x], and cell dom elements are children of id ms-board in row-major order, so the element for (x, y) is at child index y * window.msConfig.cols plus x
+  - create global function window.placeMines(safeX, safeY): randomly set mine true on exactly window.msConfig.mines cells of window.board, never on the safe cell or its 8 neighbors, then set each cell.count to its number of adjacent mines
+  - create global function window.revealCell(x, y): do nothing if window.gameOver or the cell is open or flagged; if window.firstClick is true call window.placeMines(x, y), set firstClick false, and start the timer: window.timerId = setInterval that increments window.seconds (cap at 999) and writes it padded to 3 digits into id ms-time; if the cell is a mine call window.loseGame(x, y) and stop; otherwise set cell.open true, increment window.openCount, add class open to its element, if cell.count is greater than 0 set the element text to the count and add the matching class n1 through n8, if count is 0 recursively reveal all unopened unflagged neighbors (flood fill); then call window.checkWin()
+  - create global function window.toggleFlag(x, y): do nothing if window.gameOver or the cell is open; flip cell.flag, set the element text to 🚩 or empty, update window.flagCount, set id ms-mines innerText to window.msConfig.mines minus window.flagCount padded to 3 digits
+  - create global function window.checkWin(): if window.openCount equals total cells minus window.msConfig.mines, set window.gameOver and window.gameWon true, clearInterval the timer, set id ms-reset text to 😎
+  - create global function window.loseGame(x, y): set window.gameOver true, clearInterval the timer, set id ms-reset text to 😵, reveal every mine cell by adding class open to its element, and add class mine to the clicked mine element
+  - clicking id ms-reset calls window.newGame()
+  - at the end of the script: if window.board is null, call window.newGame() once so the board renders immediately on page load
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that fits the game to the viewport
+  - create global function window.fitBoard that: computes cellSize as Math.floor of Math.min of (window.innerWidth * 0.95 divided by window.msConfig.cols) and (window.innerHeight * 0.80 divided by window.msConfig.rows), clamps it to a minimum of 8, then sets the css custom property --cell on document.documentElement to cellSize in px units
+  - always read window.msConfig.cols and window.msConfig.rows live inside the function, never cache them or any derived value
+  - add a window resize event listener that calls window.fitBoard()
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that wires up the difficulty selector and starts the game
+  - for each button inside id ms-difficulty add a click listener: read its data-diff attribute, look up window.msDifficulties for that key, and mutate window.msConfig IN PLACE (set difficulty, rows, cols, mines properties, NEVER replace the window.msConfig object itself), then remove class active from all buttons in id ms-difficulty and add it to the clicked one, then call window.newGame()
+  - after wiring all buttons, call window.newGame() once to start the game
+  - use var for all variables
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w
+it is long && it is definitely fugly
+but you can run it with models 'least 27Billy 
+hyperprompts are hypercompressed hypertext
+can Qwen's kins keep quipping?
+idk but here's to hoping: https://github.com/hypertextwiki/os/issues/18
+neuralese is a leased leash on mental isomorphismism
+
+</context>
+
 <context path="data/reddit/posts/interactivefiction/260810-nonlinear-narratives.md">
 ---
 title: "simple" technique for creating many nonlinear narratives from few parts
@@ -5845,7 +6089,10 @@ setTimeout(async () => {
     "start": "npm run build && node --env-file=.env servers/local.js",
     "build": "npm run build:llms && vite build ",
     "build:github": "npm run build:llms && GITHUB_PAGES=true node servers/github.js && GITHUB_PAGES=true vite build",
-    "build:llms": "node scripts/copy-src.js && node scripts/build-llms.js"
+    "build:llms": "node scripts/copy-src.js && node scripts/build-llms.js",
+    "build:cloudflare": "node --env-file-if-exists=.env servers/github.js && vite build",
+    "dev:cloudflare": "npm run build:cloudflare && npx wrangler dev",
+    "deploy:cloudflare": "npm run build:cloudflare && npx wrangler deploy"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
@@ -5856,6 +6103,84 @@ setTimeout(async () => {
     "vite-plugin-pwa": "^1.3.0"
   }
 }
+
+</context>
+
+<context path="servers/cloudflare/README.md">
+# Cloudflare Deployment (section to merge into README.md)
+
+## Serverless Deploys (Cloudflare Workers)
+
+The same kernel runs as a Cloudflare Worker: `dist/` is served as static assets from the edge, and a single Worker (`workers/cloudflare.js`) reimplements the `local.js` endpoint contract — `/read`, `/write`, `/data/index.json`, `/data/index.private.json`, `/stream` — plus one addition, `GET /data/<namespace>/<key>`. The bootloader and `boot/sync` need no changes; they cannot tell the difference.
+
+Storage model — the same three layers as every other deployment target, mapped onto Cloudflare, plus a fourth that only exists here:
+
+- **Baseline = static assets.** `build:cloudflare` runs `servers/github.js` first, baking public namespaces from `data/` into `dist/data/` (plus a generated `index.json`), exactly like the GitHub Pages build. The dataverse is *deployed*, not uploaded — there is no seed step.
+- **Deltas = D1.** A serverless SQLite database that only ever holds what was written through `/write`. D1 reads override the static baseline and are strongly consistent (you always see your own write). Writes are the only thing that meaningfully spends quota — the free tier allows 100,000 rows written/day, and autosaves won't dent it.
+- **Edge cache = the anonymous fast path.** Anonymous reads are remembered per edge location (Cache API) for `CACHE_TTL_SECONDS` (default: one day). On a cache hit the Worker doesn't even execute — a million visitors in one second cost ~one D1 read per edge city, then nothing. Writes purge the affected entries; the TTL is the backstop for edge locations a purge can't reach. Keyed (SYNC_KEY) requests are never cached, and only public-namespace content is ever cacheable.
+- **IndexedDB = each visitor's local cache.** Unchanged — the browser mirrors what it reads, works offline, and anonymous visitors' data never leaves their browser.
+
+**Why SQLite for the deltas:** the dataverse is a filesystem of small documents — thousands of little rows, read far more often than written, where you must always see your own write the instant you make it. SQLite is exactly that shape: each file is one row (`namespace`, `key`, `value`), reads are consistent point lookups rather than eventually-consistent snapshots, and the schema is one `CREATE TABLE` you never have to think about again. It also requires no credit card, scales to 5 GB and millions of daily reads on the free tier, and hard-caps at the limit instead of billing. The baseline stays in assets (free, unlimited, served from the edge) and the browser cache stays in IndexedDB — the database is the thin living layer in between.
+
+Read model — everyone gets the living dataverse; only the path differs:
+
+- **Anonymous:** edge cache → D1 → baked assets → `main` fallback. Reads see your writes without a redeploy (bounded by the cache TTL in the worst case); public reads are cacheable, so anonymous traffic spends essentially zero database quota under any load.
+- **Key holders:** D1 → baked assets → `main` fallback, fresh on every read — no cache in the path. `/data/index.json` unions the baked index with live D1 deltas. Private namespaces are key-holders-only, never baked, never cached.
+
+Writes are D1 deltas (`/write`, SYNC_KEY required), and each write purges the cache entries it invalidates.
+
+Two read shapes, because only one is naturally cacheable:
+
+- `POST /read` — the `boot/sync` contract. Anonymous responses are cached by the Worker under a synthetic key; keyed responses are always fresh.
+- `GET /data/<namespace>/<key>` — raw file content by URL, live (D1 first, then the baked asset). A dataverse file is a plain link: `https://your-worker.workers.dev/data/wiki/start`. Public namespaces only for anonymous; keyed GETs bypass the cache.
+
+### First deploy
+
+```bash
+npm install
+npx wrangler login
+npm run deploy:cloudflare      # bakes data/ into assets, builds, deploys, applies D1 migrations
+npx wrangler secret put QRX_SYNC_KEY   # only needed if you want to write
+```
+
+The D1 database has no ID committed to the repo — the first `wrangler deploy` auto-provisions it and links it to the `DB` binding, and the deploy script applies the schema migration right after. There is nothing account-specific in version control. No credit card required for any of it (Workers free + D1 free are cardless; R2 is the only Cloudflare product in this project's orbit that wants a card on file, and we don't use it).
+
+`build:cloudflare` reads `QRX_PUBLIC_NAMESPACES` from `.env` if present (via `--env-file-if-exists`), same as `npm start`. Keep it in sync with the `QRX_PUBLIC_NAMESPACES` var in `wrangler.jsonc` — the former controls what gets baked into assets, the latter controls what the Worker serves to anonymous readers. (Same two-place wart as `deploy.yml`, now three. Sorry.)
+
+### Forking (the zero-config path)
+
+Clone → `wrangler login` → `npm run deploy:cloudflare`. Done — the baseline dataverse comes from the repo itself, so a fork boots fully populated. Set a `QRX_SYNC_KEY` secret only if the fork's owner wants to write. No dashboard, no seed, no card required. Free-tier budgets (100k Worker requests/day, 5M D1 rows read/day, 100k D1 rows written/day, 5 GB) comfortably cover single-author instances, and the edge cache means anonymous surges don't touch the database at all. Since September 2026 the free-tier D1 limits are hard-enforced — queries error until the midnight-UTC reset rather than billing you, so hitting a cap is an inconvenience, never a charge.
+
+### Configuration
+
+- `QRX_PUBLIC_NAMESPACES` / `QRX_PRIVATE_NAMESPACES` — plain vars in `wrangler.jsonc`, committed, safe to edit per fork.
+- `CACHE_TTL_SECONDS` — plain var in `wrangler.jsonc`, default `86400` (one day). How long the edge remembers an anonymous read. Lower = fresher for strangers under active editing; higher = cheaper under load. Writes purge what they can, so staleness is the worst case, not the common one.
+- `QRX_SYNC_KEY` — a Worker secret (`wrangler secret put`), never committed. Same role as in `.env`: authorizes `/write`, `/data/index.private.json`, and `/stream`, and bypasses the cache on reads. Cloudflare secrets are write-only — keep your local copy in `.env`. **The worker fails closed:** with no secret configured, `/write` rejects everyone — a keyless deployment is read-only, never world-writable. (Local dev: put `QRX_SYNC_KEY` in `.env`/`.dev.vars` if you want writes under `wrangler dev`.)
+- Custom domains and wildcard subdomains (`*.yourdomain.com`) attach via Routes; each hostname is a separate browser origin, so each subdomain gets its own isolated IndexedDB automatically.
+
+### What's different at runtime
+
+- **SPA routing is free.** `not_found_handling: "single-page-application"` in `wrangler.jsonc` serves `index.html` for unknown paths — the `404.html` sessionStorage hack is GitHub Pages-only.
+- **`/stream` is a heartbeat-only placeholder.** EventSource clients connect and stay connected, but no write notifications are broadcast yet — cross-device live sync arrives with the Durable Objects phase. Sync-on-load (the bootloader) is unaffected.
+- **D1 is strongly consistent** — you always read your own write, from any device, immediately. The one latency note: D1 has a single primary region, so uncached reads route there. Anonymous traffic almost never reaches D1 at all (cache hits), so this only applies to you.
+- **Cache purges are per edge location.** A write clears the entries it can reach; other locations freshen at TTL expiry. A write to `main/<key>` can also leave another namespace's read of `<key>` (which falls back to `main`) stale until TTL. Both are bounded by `CACHE_TTL_SECONDS` — if that ever matters, lower it.
+- **D1 rows cap at 2 MB** — irrelevant for hypertext, but a file larger than that gets a 400 from `/write` instead of silent corruption.
+- **Baseline updates require a redeploy** (they're assets). D1 deltas apply instantly (for you) and within the cache TTL (for anonymous readers). If you edit `data/` locally and want it live: `npm run deploy:cloudflare`.
+
+### Local dev
+
+`npm run dev:cloudflare` builds, applies migrations to a local SQLite, and serves via `wrangler dev` — the baseline comes from the baked assets, so local dev boots fully populated with an empty database. Writes during dev go to that *local* database (in `.wrangler/state`, gitignored), separate from your deployed one. Note: `caches.default` behaves differently under `wrangler dev` than in production — don't judge cache behavior from local dev alone.
+
+### Inspecting and troubleshooting
+
+- **See your data directly** — don't trust the dashboard. The D1 dashboard metrics ("Total queries / Rows read / Rows written") are analytics and can lag badly; even `wrangler d1 list`'s `num_tables` is stale control-plane metadata. Ground truth is a query:
+  ```bash
+  npx wrangler d1 execute qrx --remote --command "SELECT ns, k, v FROM files"
+  ```
+- **`{"error":"D1_ERROR: no such table: files"}`** — the migration was never applied to the remote database. Fix: `npx wrangler d1 migrations apply qrx --remote` (it's part of `deploy:cloudflare`, but it's safe to run standalone anytime — already-applied migrations are skipped).
+- **Writes return 401 for you** — check that the secret exists under exactly this name: `npx wrangler secret list` (shows names only; values are write-only). Set or reset with `npx wrangler secret put QRX_SYNC_KEY`. Secrets persist across `wrangler deploy` — you only set them once.
+- **Writes return 401 for everyone, and you never set a key** — that's the intended fail-closed behavior; your deployment is read-only until you set one.
+- **A write succeeded but anonymous reads are stale** — the edge cache. Keyed reads confirm the data is there; anonymous readers in other edge locations see it after `CACHE_TTL_SECONDS` at worst.
 
 </context>
 
@@ -6752,5 +7077,346 @@ export default defineConfig(({ mode }) => {
     },
   }
 })
+
+</context>
+
+<context path="workers/cloudflare.js">
+/**
+ * workers/cloudflare.js
+ *
+ * Cloudflare Worker port of servers/local.js — same endpoint contract.
+ *
+ * Storage model:
+ *   - Baseline: static assets in dist/data/ (public namespaces only, baked
+ *     by servers/github.js at build time). Read-only between deploys.
+ *   - Deltas: D1 ("DB" binding). Everything written via /write lives here.
+ *     Strongly consistent — you always see your own write.
+ *   - Edge cache: anonymous reads are cached per edge location (Cache API)
+ *     with a long TTL (CACHE_TTL_SECONDS, default 1 day). /write purges the
+ *     affected entries; the TTL is the backstop when a purge can't reach a
+ *     given edge location. Keyed (SYNC_KEY) requests are never cached.
+ *   - IndexedDB in the browser: each visitor's local cache of all of the above.
+ *
+ * Endpoints (identical shapes to local.js, plus one addition):
+ *   POST /read                       { namespace, key } -> { value } | 404
+ *   POST /write                      { namespace, key, value, clientId } -> { status: 'saved' } | 401
+ *   GET  /data/index.json            -> ["namespace/key", ...] (baseline ∪ public deltas)
+ *   GET  /data/index.private.json    -> ["namespace/key", ...] (D1 only, auth required)
+ *   GET  /data/<namespace>/<key>     -> raw file content (live: D1 first, then baked asset)
+ *   GET  /stream                     -> SSE heartbeat (placeholder until Durable Objects fan-out)
+ *   GET  /*                          -> static assets, SPA fallback to index.html
+ *
+ * Anonymous traffic is served from cache/assets and costs ~zero quota.
+ * Only key holders can write, read private namespaces, or bypass the cache.
+ */
+
+const ALWAYS_PUBLIC = ['main', 'cache']
+
+// D1 rows cap at 2 MB. Should never matter for hypertext — fail loudly
+// instead of corrupting silently.
+const MAX_VALUE_BYTES = 1_900_000
+
+const parseList = (s) =>
+  (s || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean)
+
+function isPublic(env, ns) {
+  const set = new Set([...parseList(env.QRX_PUBLIC_NAMESPACES), ...ALWAYS_PUBLIC])
+  return ns && set.has(ns.toLowerCase())
+}
+
+function isPrivate(env, ns) {
+  return ns && parseList(env.QRX_PRIVATE_NAMESPACES).includes(ns.toLowerCase())
+}
+
+function authed(request, env) {
+  return !!env.QRX_SYNC_KEY && request.headers.get('Authorization') === env.QRX_SYNC_KEY
+}
+
+function corsHeaders() {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'OPTIONS, GET, POST',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  }
+}
+
+function json(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+  })
+}
+
+/* ---------- D1 ---------- */
+
+async function dbRead(env, ns, key) {
+  const row = await env.DB.prepare('SELECT v FROM files WHERE ns = ? AND k = ?')
+    .bind(ns, key)
+    .first('v')
+  return row === null ? null : row
+}
+
+/** All stored deltas as "namespace/key" strings. */
+async function listAllKeys(env) {
+  const { results } = await env.DB.prepare('SELECT ns, k FROM files').all()
+  return results.map((r) => `${r.ns}/${r.k}`)
+}
+
+/* ---------- static baseline ---------- */
+
+/**
+ * Fetch a baked baseline file from the static assets (dist/data/...).
+ * Returns null on a miss. Keys are used decoded, as in index.json.
+ */
+async function readStaticAsset(env, request, assetPath) {
+  const res = await env.ASSETS.fetch(new URL(assetPath, request.url))
+  if (!res.ok) return null
+  return await res.text()
+}
+
+/**
+ * The full read chain: (optionally D1) -> baked asset -> same for main.
+ * useDb is false for... nothing currently — anonymous reads also check D1,
+ * they're just cache-wrapped. The flag exists so the author path and the
+ * cached path share one implementation.
+ */
+async function lookup(env, request, namespace, key, useDb) {
+  let value = null
+  if (useDb) value = await dbRead(env, namespace, key)
+  if (value === null) value = await readStaticAsset(env, request, `/data/${namespace}/${key}`)
+
+  if (value === null && namespace.toLowerCase() !== 'main') {
+    if (useDb) value = await dbRead(env, 'main', key)
+    if (value === null) value = await readStaticAsset(env, request, `/data/main/${key}`)
+  }
+  return value
+}
+
+/* ---------- edge cache (anonymous traffic only) ---------- */
+
+/** Synthetic cache key for POST /read results (POSTs have no cacheable URL). */
+function readCacheKey(namespace, key) {
+  return new Request(
+    `https://qrx.cache/read/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`
+  )
+}
+
+function ttl(env) {
+  return parseInt(env.CACHE_TTL_SECONDS || '86400', 10)
+}
+
+/**
+ * Cache-aside wrapper: serve from the edge cache if present, otherwise
+ * compute, store (only 200s), return. Stored responses carry
+ * Cache-Control: max-age=<ttl>, which is what expires them.
+ */
+async function cachedJson(env, ctx, cacheKey, compute) {
+  const hit = await caches.default.match(cacheKey)
+  if (hit) return hit
+  const { body, status } = await compute()
+  if (status === 200) {
+    const store = json(body, status)
+    store.headers.set('Cache-Control', `public, max-age=${ttl(env)}`)
+    ctx.waitUntil(caches.default.put(cacheKey, store))
+  }
+  return json(body, status)
+}
+
+/**
+ * Best-effort purge after a write. NOTE: the Cache API is per edge location,
+ * so this only clears the location that served the write — everywhere else
+ * freshens at TTL expiry. Also purges the public index (a write may be a
+ * brand-new key). Writes to main/<key> can leave other-namespace reads of
+ * <key> (which fall back to main) stale until TTL — accepted, documented.
+ */
+async function purgeAfterWrite(request, env, ctx, namespace, key) {
+  ctx.waitUntil(Promise.all([
+    caches.default.delete(readCacheKey(namespace, key)),
+    caches.default.delete(new Request(new URL(`/data/${namespace}/${key}`, request.url))),
+    caches.default.delete(readCacheKey('index', 'public')),
+  ]))
+}
+
+/* ---------- endpoint handlers ---------- */
+
+/**
+ * POST /read — the boot/sync contract. Keyed: fresh from D1, never cached.
+ * Anonymous: same data, but wrapped in the edge cache. Both fall back to
+ * baked assets, then the main namespace.
+ */
+async function handleRead(request, env, ctx) {
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return json({ error: 'Invalid JSON' }, 400)
+  }
+  const { namespace, key } = body || {}
+  if (!namespace || key === undefined) return json({ error: 'Missing namespace or key' }, 400)
+
+  if (authed(request, env)) {
+    const value = await lookup(env, request, namespace, key, true)
+    return value === null ? json({ error: 'Not found' }, 404) : json({ value })
+  }
+  if (!isPublic(env, namespace)) {
+    return json({ error: 'Namespace not in allowlist' }, 404)
+  }
+
+  return cachedJson(env, ctx, readCacheKey(namespace, key), async () => {
+    const value = await lookup(env, request, namespace, key, true)
+    return value === null
+      ? { body: { error: 'Not found' }, status: 404 }
+      : { body: { value }, status: 200 }
+  })
+}
+
+/**
+ * GET /data/<namespace>/<key> — live raw reads by URL. This is what makes a
+ * dataverse file a plain link: anonymous readers get cached live content,
+ * keyed readers get fresh content. Unlisted/private namespaces 404 for
+ * anonymous without ever touching D1.
+ */
+async function handleDataFile(request, env, ctx, pathname) {
+  const rest = pathname.slice('/data/'.length)
+  const slash = rest.indexOf('/')
+  if (slash <= 0) return env.ASSETS.fetch(request)
+  const namespace = decodeURIComponent(rest.slice(0, slash))
+  const key = decodeURIComponent(rest.slice(slash + 1))
+
+  const isAuthed = authed(request, env)
+  if (!isAuthed && !isPublic(env, namespace)) {
+    return new Response('Not found', { status: 404 })
+  }
+
+  const mimes = {
+    html: 'text/html', md: 'text/markdown', json: 'application/json',
+    js: 'text/javascript', css: 'text/css', png: 'image/png', svg: 'image/svg+xml',
+  }
+  const ext = key.split('.').pop()
+  const contentType = mimes[ext] || 'text/plain; charset=utf-8'
+
+  const serve = async () => {
+    const value = await lookup(env, request, namespace, key, true)
+    if (value === null) return null
+    return new Response(value, { headers: { 'Content-Type': contentType } })
+  }
+
+  if (isAuthed) {
+    const res = await serve()
+    return res || new Response('Not found', { status: 404 })
+  }
+
+  const hit = await caches.default.match(request)
+  if (hit) return hit
+  const res = await serve()
+  if (!res) return new Response('Not found', { status: 404 })
+  res.headers.set('Cache-Control', `public, max-age=${ttl(env)}`)
+  ctx.waitUntil(caches.default.put(request, res.clone()))
+  return res
+}
+
+/** POST /write — requires SYNC_KEY. Writes are D1 deltas; purges the edge cache. */
+async function handleWrite(request, env, ctx) {
+  if (env.QRX_SYNC_KEY && !authed(request, env)) {
+    return json({ error: 'Unauthorized' }, 401)
+  }
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return json({ error: 'Invalid JSON' }, 400)
+  }
+  const { namespace, key, value } = body || {}
+  if (!namespace || !key) return json({ error: 'Missing namespace or key' }, 400)
+  if (typeof value === 'string' && value.length > MAX_VALUE_BYTES) {
+    return json({ error: 'Value exceeds 2 MB D1 row limit' }, 400)
+  }
+
+  await env.DB.prepare('INSERT OR REPLACE INTO files (ns, k, v) VALUES (?, ?, ?)')
+    .bind(namespace, key, value ?? '')
+    .run()
+  await purgeAfterWrite(request, env, ctx, namespace, key)
+  return json({ status: 'saved' })
+}
+
+/**
+ * GET /data/index.json — baseline ∪ public D1 deltas. Anonymous: cached.
+ * Keyed: fresh. GET /data/index.private.json — D1 only, SYNC_KEY required,
+ * never cached (private namespaces are never baked into assets).
+ */
+async function handleIndex(request, env, ctx, privateOnly) {
+  if (privateOnly && !authed(request, env)) {
+    return json({ error: 'Unauthorized' }, 401)
+  }
+
+  const compute = async () => {
+    const dbKeys = (await listAllKeys(env)).filter((k) => {
+      const ns = k.split('/')[0]
+      return privateOnly ? isPrivate(env, ns) : isPublic(env, ns)
+    })
+    if (privateOnly) return { body: dbKeys, status: 200 }
+    const staticRaw = await readStaticAsset(env, request, '/data/index.json')
+    const staticIndex = staticRaw ? JSON.parse(staticRaw) : []
+    return { body: [...new Set([...staticIndex, ...dbKeys])], status: 200 }
+  }
+
+  if (authed(request, env)) {
+    const { body, status } = await compute()
+    return json(body, status)
+  }
+  return cachedJson(env, ctx, readCacheKey('index', 'public'), compute)
+}
+
+/**
+ * GET /stream — SSE placeholder. Holds the connection open with heartbeats so
+ * EventSource clients (boot/sync) connect cleanly without reconnect-storming
+ * the request quota. Real write notifications arrive with the Durable Object
+ * fan-out phase; the client contract does not change.
+ */
+async function handleStream(request, env) {
+  const url = new URL(request.url)
+  if (env.QRX_SYNC_KEY && url.searchParams.get('auth') !== env.QRX_SYNC_KEY) {
+    return new Response('Unauthorized', { status: 401, headers: corsHeaders() })
+  }
+  const { readable, writable } = new TransformStream()
+  const writer = writable.getWriter()
+  const encoder = new TextEncoder()
+  const interval = setInterval(() => {
+    writer.write(encoder.encode(': heartbeat\n\n')).catch(() => clearInterval(interval))
+  }, 30000)
+  writer.write(encoder.encode(': connected\n\n')).catch(() => {})
+  return new Response(readable, {
+    headers: {
+      ...corsHeaders(),
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+    },
+  })
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url)
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: corsHeaders() })
+    }
+
+    try {
+      if (request.method === 'POST' && url.pathname === '/read') return await handleRead(request, env, ctx)
+      if (request.method === 'POST' && url.pathname === '/write') return await handleWrite(request, env, ctx)
+      if (request.method === 'GET' && url.pathname === '/data/index.json') return await handleIndex(request, env, ctx, false)
+      if (request.method === 'GET' && url.pathname === '/data/index.private.json') return await handleIndex(request, env, ctx, true)
+      if (request.method === 'GET' && url.pathname === '/stream') return await handleStream(request, env)
+      if (request.method === 'GET' && url.pathname.startsWith('/data/')) return await handleDataFile(request, env, ctx, url.pathname)
+    } catch (e) {
+      return json({ error: e.message }, 500)
+    }
+
+    // Everything else: static assets, with SPA fallback to index.html
+    // (configured via not_found_handling in wrangler.jsonc).
+    return env.ASSETS.fetch(request)
+  },
+}
 
 </context>

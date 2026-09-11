@@ -1,0 +1,153 @@
+#apps/img?e&w&p=TASK: output HTML wireframe for an AI image generator
+  - your output is injected into an existing main element with id A that already exists on the page, do NOT create a main element, do NOT create any element with id A
+  - style the existing main id A to fill the viewport: width 100vw, height 100vh, margin 0, padding 0, overflow hidden
+  - basic css reset: box-sizing border-box for all elements, margin 0 on body
+  - chromeless windows 95 styling throughout: raised panel borders, sunken inset fields, no titlebar, no menu bar, no window chrome
+  - root container: div id img-app, display flex, flex-direction column, width 100vw, height 100vh
+  - header: div id img-header, horizontal flex, gap 8px, padding 8px, three labeled fields:
+    - select id model-select with label model, flex 1, leave it EMPTY with a single option saying loading..., javascript populates it later
+    - text input id model-host with label host, flex 2, preset value https://openrouter.ai/api/v1/images
+    - password input id api-key with label api key, flex 1
+  - prompt area: div id img-prompts, vertical flex, gap 6px, padding 8px
+    - textarea id img-prompt with placeholder prompt, min-height 64px, resize vertical
+    - textarea id img-negative with placeholder negative prompt, min-height 40px, resize vertical
+  - params row: div id img-params, horizontal flex, gap 8px, padding 8px, leave it EMPTY, javascript renders per-model controls into it later
+  - button row: div id img-buttons, horizontal flex, gap 8px, padding 8px
+    - button id submit-btn with label Generate
+    - button id stop-btn with label Stop
+  - gallery: div id img-gallery, flex 1, overflow-y auto, padding 8px, display flex, flex-wrap wrap, gap 8px, align-content flex-start
+  - define gallery css classes now, they get rendered by javascript later:
+    - .img-result: sunken win95 border, padding 4px
+    - .img-result img: display block, max-width 256px, max-height 256px
+  - status bar: div id status-bar, padding 4px 8px, border-top win95 inset style, initial text idle
+  - no elements should be disabled
+  - NO JAVASCRIPT
+  - DONT INCLUDE html/head/body tags just the wireframe
+&w&a=1&p=TASK: output a SCRIPT tag that populates the config inputs and creates the global image generator state
+  - id api-key: hydrate its value from localStorage key k, add a change listener that writes its value back to k
+  - id model-host: hydrate its value from localStorage key apps_img_h, keep the existing preset value when the key is absent, add a change listener that writes its value back to apps_img_h
+  - id model-select: add a change listener that writes the selected value to localStorage key apps_img_m, do NOT try to set its selection yet, a later script populates the options and applies apps_img_m
+  - create global object: window.imgState = { results: [], busy: false }
+  - create global: window.imgModels = null (model list cache, populated by a later script)
+  - create global: window.abortCtrl = null (in-flight request controller, used by a later script)
+  - mutate window.imgState in place, never replace the object
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that loads the image model list into the model dropdown
+  - create global async function window.fetchImageModels():
+    - read host from id model-host, apikey from id api-key
+    - set innerText of id status-bar to loading models...
+    - fetch host %2B '/models' with method GET, header Authorization Bearer plus the apikey only when apikey is non-empty
+    - if the response is not ok: set innerText of id status-bar to 'HTTP ' %2B response.status and return
+    - parse the json and take its data array, store the array on window.imgModels
+    - remove all existing options from id model-select, then for each model append an option with value model.id and label model.name, falling back to model.id when name is missing
+    - after populating: when localStorage key apps_img_m matches one of the option values select that option, otherwise select the first option
+    - set innerText of id status-bar to idle
+    - wrap the whole function body in try/catch: on error set innerText of id status-bar to err.message
+  - add a change listener on id model-host and another on id api-key, both calling window.fetchImageModels(), so editing either field reloads the dropdown
+  - call window.fetchImageModels() once immediately so the dropdown loads on page load
+  - BE HYPER AWARE OF PROMISES: fetch() returns a promise, every async step must be awaited or .then()ed, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that loads the image model list into the model dropdown
+  - create global async function window.fetchImageModels():
+    - read host from id model-host, apikey from id api-key
+    - set innerText of id status-bar to loading models...
+    - fetch host %2B '/models' with method GET, header Authorization Bearer plus the apikey only when apikey is non-empty
+    - if the response is not ok: set innerText of id status-bar to 'HTTP ' %2B response.status and return
+    - parse the json and take its data array, store the array on window.imgModels
+    - remove all existing options from id model-select, then for each model append an option with value model.id and label model.name, falling back to model.id when name is missing
+    - after populating: when localStorage key apps_img_m matches one of the option values select that option, otherwise select the first option
+    - set innerText of id status-bar to idle
+    - wrap the whole function body in try/catch: on error set innerText of id status-bar to err.message
+  - add a change listener on id model-host and another on id api-key, both calling window.fetchImageModels(), so editing either field reloads the dropdown
+  - call window.fetchImageModels() once immediately so the dropdown loads on page load
+  - BE HYPER AWARE OF PROMISES: fetch() returns a promise, every async step must be awaited or .then()ed, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that renders per-model parameter controls into the params row
+  - create global object: window.imgParams = {} (current parameter values, read by a later script, always mutate in place, never replace the object)
+  - create global function window.renderImgParams():
+    - when window.imgModels is missing or empty, do nothing and return
+    - find the model in window.imgModels whose id matches the value of id model-select, when none found do nothing and return
+    - read its supported_parameters object, when missing do nothing and return
+    - delete every existing key from window.imgParams, then remove all children of id img-params
+    - for each key of supported_parameters, in object key order:
+      - SKIP the keys stream and input_references entirely, they are handled by later features
+      - when the descriptor type is enum: append a labeled select to id img-params with the key as label and one option per entry of the descriptor values array, set window.imgParams[key] to the first value, on change write the selected value to window.imgParams[key]
+      - when the descriptor type is range: append a labeled number input to id img-params with the key as label, min and max from the descriptor, value set to the descriptor min, set window.imgParams[key] to the min, on change write the numeric value to window.imgParams[key]
+      - when the key is seed: append a labeled number input with label seed and placeholder optional, leave it empty, on change write the numeric value to window.imgParams.seed or delete window.imgParams.seed when emptied
+      - skip any other descriptor type
+  - add a change listener on id model-select that calls window.renderImgParams()
+  - WRAPPER: var prevFetchModelsParams = window.fetchImageModels; window.fetchImageModels = async function() { await prevFetchModelsParams(); window.renderImgParams(); } — call ONLY prevFetchModelsParams inside, never window.fetchImageModels, and when window.fetchImageModels._hasParams is already true skip the wrapping entirely, otherwise set window.fetchImageModels._hasParams = true after wrapping
+  - call window.fetchImageModels() once at the end so the wrapped version runs and the controls render on page load
+  - BE HYPER AWARE OF PROMISES: fetch() returns a promise, every async step must be awaited or .then()ed, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag with the image generation fetch path
+  - create global async function window.generateImage():
+    - when window.imgState.busy is true, return immediately
+    - read prompt from id img-prompt, when empty after trim set innerText of id status-bar to enter a prompt and return
+    - read negative from id img-negative, when non-empty after trim fold it into the prompt: prompt = prompt %2B '\nAvoid: ' %2B negative
+    - read model from id model-select, host from id model-host, apikey from id api-key
+    - set window.imgState.busy = true, set innerText of id status-bar to generating...
+    - window.abortCtrl = new AbortController()
+    - build the request body: an object with model and prompt, then copy in every key of window.imgParams, skipping keys whose value is undefined, null, or empty string
+    - fetch host with method POST, header Content-Type application/json, header Authorization Bearer plus the apikey only when apikey is non-empty, signal window.abortCtrl.signal, body JSON.stringify of the request body
+    - if the response is not ok: set innerText of id status-bar to 'HTTP ' %2B response.status, set window.imgState.busy = false, return
+    - parse the json and take its data array
+    - when the parsed json has a usage object, store it on window.imgState.lastUsage
+    - for each item of the data array: push an object { b64: item.b64_json, media_type: item.media_type or 'image/png' when missing, model: model, prompt: the prompt text, ts: Date.now() } onto window.imgState.results, always push, never reassign the array
+    - when window.renderGallery exists, call it
+    - set window.imgState.busy = false, window.abortCtrl = null, set innerText of id status-bar to idle
+    - wrap the whole function body in try/catch: when the error is an abort set innerText of id status-bar to stopped, otherwise set it to err.message, and in both cases set window.imgState.busy = false and window.abortCtrl = null
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that wires up the generator and renders results
+  - create global function window.renderGallery(): remove all children of id img-gallery, then for each entry of window.imgState.results append a div with class img-result containing an img whose src is 'data:' %2B entry.media_type %2B ';base64,' %2B entry.b64, whose title and alt are entry.model %2B ' — ' %2B entry.prompt
+  - bind click on id submit-btn and Ctrl%2BEnter keydown on id img-prompt to call window.generateImage()
+  - bind click on id stop-btn to call window.abortCtrl.abort() when window.abortCtrl exists
+  - WRAPPER: var prevGenEvents = window.generateImage; window.generateImage = async function() { var before = window.imgState.results.length; await prevGenEvents(); for each entry of window.imgState.results starting at index before: dispatch new CustomEvent('img:result', { detail: entry }) on window } — call ONLY prevGenEvents inside, never window.generateImage, when window.generateImage._hasEvents is already true skip the wrapping entirely, otherwise set window.generateImage._hasEvents = true after wrapping
+  - add a code comment: future features hook the img:result event on window instead of wrapping this chain
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag with a fullscreen image previewer for the gallery
+  - create global window.imgViewerIndex = null (null means closed)
+  - create the viewer DOM once at script load: div id img-viewer, fixed position covering the whole viewport, soft dark translucent background, display none, centered flex row, high z-index; inside it in order: button id img-viewer-prev with label ⬅️, a vertical flex column containing img id img-viewer-img (max-width 80vw, max-height 80vh) above div id img-viewer-caption (light text, max-height 3 lines of text, overflow hidden), button id img-viewer-next with label ➡️; plus button id img-viewer-close with label ❌ fixed to the top right corner; make all three buttons large and tappable for mobile
+  - create global function window.renderImgViewer(): when window.imgViewerIndex is null hide id img-viewer and return; read window.imgState.results live; when it is empty call window.closeImgViewer() and return; clamp window.imgViewerIndex into range; set the src of id img-viewer-img to the data URI of the entry, set the innerText of id img-viewer-caption to entry.model %2B ' — ' %2B entry.prompt
+  - create global function window.openImgViewer(i): set window.imgViewerIndex = i, show id img-viewer, call window.renderImgViewer(), dispatch new CustomEvent('img:view', { detail: { index: i } }) on window
+  - create global function window.closeImgViewer(): set window.imgViewerIndex = null, hide id img-viewer
+  - create global function window.stepImgViewer(d): var n = window.imgState.results.length; when n is 0 return; set window.imgViewerIndex to the remainder of (window.imgViewerIndex %2B d %2B n) divided by n so navigation loops around both ends; call window.renderImgViewer()
+  - bind ONE click listener on id img-gallery: when the clicked element is an img inside a .img-result, call window.openImgViewer with the index of that .img-result among the children of id img-gallery
+  - bind click on id img-viewer to close ONLY when the click target is id img-viewer itself (the backdrop), never when clicking the image, caption, or buttons
+  - bind click on id img-viewer-prev to window.stepImgViewer(-1), on id img-viewer-next to window.stepImgViewer(1), on id img-viewer-close to window.closeImgViewer()
+  - bind keydown on window: when window.imgViewerIndex is null do nothing; Escape closes, ArrowLeft steps -1, ArrowRight steps 1
+  - add a code comment: the viewer reads window.imgState.results live on every render so navigation always reflects the current gallery
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that embeds generation metadata into images and adds per-image download and browser storage
+  - CRITICAL: the kernel already provides the global functions write(v, k, d) and read(k, d), they store into the QRx filesystem; call them directly — NEVER declare your own function named write or read, NEVER use indexedDB.open or create your own object store, writing a blob is just await write(blob, key, namespace)
+  - create global string window.EMPTY_PIXEL holding exactly this literal value, it is a 1x1 jpeg data URI used in place of deletion: data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=
+  - helper b64ToBlob(b64, mime): return the blob from await fetch('data:' %2B mime %2B ';base64,' %2B b64) then response.blob()
+  - helper emptyPixelBlob(): return the blob from await fetch(window.EMPTY_PIXEL) then response.blob()
+  - create global async function window.embedMeta(blob, entry) that returns an object { blob, ext, media_type }, it is a pure function that never touches the DOM or globals so future chains can call it directly:
+    - build the metadata text: entry.prompt %2B '\nModel: ' %2B entry.model %2B ', Date: ' %2B new Date(entry.ts).toISOString()
+    - when blob.type is image/svg%2Bxml: read the blob as text, insert an XML comment holding the metadata text right before the closing svg tag (or prepend it when none), return { blob: a new Blob of the result with type image/svg%2Bxml, ext: 'svg', media_type: 'image/svg%2Bxml' }
+    - otherwise raster to jpeg: var bmp = await createImageBitmap(blob); draw it onto a canvas sized bmp.width by bmp.height; var jpeg = the blob from await new Promise canvas.toBlob with type image/jpeg and quality 0.92
+    - splice a jpeg COM comment segment holding the metadata text into the jpeg: read jpeg as a Uint8Array; the metadata text as UTF-8 bytes via TextEncoder, truncated to at most 65533 bytes; the segment is byte 0xFF, byte 0xFE, then two big-endian length bytes where length is the text byte count %2B 2, then the text bytes; the output is a new Blob of type image/jpeg made from: the first 2 bytes of the jpeg (the SOI marker), then the segment, then the rest of the jpeg
+    - return { blob: the output, ext: 'jpg', media_type: 'image/jpeg' }
+  - create a new row div id img-save-row and insert it directly after id img-header with the same horizontal flex layout; inside it one labeled field: text input id save-folder with label save folder, default value private%23img
+  - hydrate id save-folder from localStorage key apps_img_sf, keep the default when the key is absent, add a change listener that writes its value back to apps_img_sf
+  - helper saveTarget(filename): read the value of id save-folder; when it contains %23 split at the FIRST %23 into namespace and folder, otherwise folder is the value and namespace is null; return an object { ns: namespace, key: folder %2B '/' %2B filename }
+  - helper fileNameFor(entry, ext): build YYMMDD-HHMMSS from entry.ts, append a hyphen and the first 10 words of entry.prompt slugified to lowercase hyphenated words; the filename MUST end with a dot and the given ext, never return a filename without an extension
+  - helper makeTileControls(tile, entry): append to tile a small horizontal row containing a button labeled with a download emoji and a labeled checkbox with the label store in browser whose checked state is entry.stored; because entry arrives as a function argument, every handler below closes over its OWN entry — never build these handlers in a bare loop, a shared loop variable makes every button act on the last image
+    - click on the download button: var out = await window.embedMeta(await b64ToBlob(entry.b64, entry.media_type), entry); create a temporary a element with href URL.createObjectURL(out.blob) and download attribute fileNameFor(entry, out.ext), click it, then revoke the object URL and remove the element
+    - change on the checkbox, mutate entry in place, never replace it:
+      - when checked: var out = await window.embedMeta(await b64ToBlob(entry.b64, entry.media_type), entry); var t = saveTarget(fileNameFor(entry, out.ext)); set entry.savedKey = t.key and entry.savedNs = t.ns; await write(out.blob, t.key, t.ns) when t.ns is non-null, otherwise await write(out.blob, t.key); set entry.stored = true
+      - when unchecked: await write(await emptyPixelBlob(), entry.savedKey, entry.savedNs) when entry.savedNs is non-null, otherwise await write(await emptyPixelBlob(), entry.savedKey); set entry.stored = false
+  - WRAPPER: var prevRenderSave = window.renderGallery; window.renderGallery = function() { call prevRenderSave(), then loop the .img-result children of id img-gallery and call makeTileControls(tile, window.imgState.results[i]) for each one } — call ONLY prevRenderSave inside, never window.renderGallery; when window.renderGallery._hasSave is already true skip the wrapping entirely, otherwise set window.renderGallery._hasSave = true after wrapping
+  - add a code comment: the filesystem has no delete, unchecking overwrites the file with an empty pixel blob; window.embedMeta embeds the prompt and model into the image bytes themselves as a jpeg COM segment or svg comment so the file carries its own recipe
+  - BE HYPER AWARE OF PROMISES: write(), fetch(), createImageBitmap() and embedMeta() return promises, every async step must be awaited or .then()ed, never let [object Promise] leak into a string
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
+&w
