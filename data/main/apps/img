@@ -931,3 +931,184 @@ if (!window.renderGallery._hasSave) {
   window.renderGallery._hasSave = true;
 }
 </script>
+
+<script>
+window.blobToB64 = async function(blob) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onloadend = function() {
+      var dataUrl = reader.result;
+      var commaIndex = dataUrl.indexOf(',');
+      if (commaIndex !== -1) {
+        resolve(dataUrl.substring(commaIndex + 1));
+      } else {
+        resolve(dataUrl);
+      }
+    };
+    reader.onerror = function() {
+      reject(new Error('FileReader error'));
+    };
+    reader.readAsDataURL(blob);
+  });
+};
+
+window.readMeta = async function(blob) {
+  var buffer = await blob.arrayBuffer();
+  var bytes = new Uint8Array(buffer);
+  if (bytes.length < 2 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
+    return {};
+  }
+  var offset = 2;
+  var meta = {};
+  while (offset < bytes.length - 1) {
+    if (bytes[offset] !== 0xFF) {
+      offset++;
+      continue;
+    }
+    var marker = bytes[offset + 1];
+    if (marker === 0xD9) {
+      break;
+    }
+    if (marker === 0x00 || marker === 0xFF || (marker >= 0xD0 && marker <= 0xD7)) {
+      offset += 2;
+      continue;
+    }
+    if (offset + 3 >= bytes.length) {
+      break;
+    }
+    var lenHigh = bytes[offset + 2];
+    var lenLow = bytes[offset + 3];
+    var segmentLength = (lenHigh << 8) | lenLow;
+    if (segmentLength < 2) {
+      offset += 2;
+      continue;
+    }
+    if (marker === 0xFE) {
+      var textBytes = bytes.subarray(offset + 4, offset + 2 + segmentLength);
+      var text = new TextDecoder().decode(textBytes);
+      var newlineIndex = text.indexOf('\n');
+      if (newlineIndex !== -1) {
+        var prompt = text.substring(0, newlineIndex);
+        var rest = text.substring(newlineIndex + 1);
+        var modelMatch = rest.match(/^Model: (.*), Date: (.*)$/);
+        if (modelMatch) {
+          var model = modelMatch[1];
+          var dateStr = modelMatch[2];
+          var parsedDate = new Date(dateStr);
+          if (!isNaN(parsedDate.getTime())) {
+            meta = { prompt: prompt, model: model, ts: parsedDate.getTime() };
+            break;
+          }
+        }
+      }
+    }
+    offset += 2 + segmentLength;
+  }
+  return meta;
+};
+
+var refreshBtn = document.createElement('button');
+refreshBtn.id = 'img-refresh-btn';
+refreshBtn.textContent = '🔄';
+refreshBtn.title = 'refresh gallery';
+refreshBtn.addEventListener('click', function() {
+  window.loadGalleryFromFolder();
+});
+document.getElementById('img-save-row').appendChild(refreshBtn);
+
+window.loadGalleryFromFolder = async function() {
+  try {
+    var saveInput = document.getElementById('save-folder');
+    var folderString = saveInput.value.trim();
+    var namespace = null;
+    var folder = folderString;
+    var hashIndex = folderString.indexOf('#');
+    if (hashIndex !== -1) {
+      namespace = folderString.substring(0, hashIndex);
+      folder = folderString.substring(hashIndex + 1);
+    }
+    var dbHandle;
+    if (namespace !== null) {
+      dbHandle = await getDB(namespace);
+    } else {
+      dbHandle = await getDB();
+    }
+    var prefix = folder !== '' ? folder + '/' : '';
+    var keysList = await keys(IDBKeyRange.bound(prefix, prefix + String.fromCharCode(65535)), dbHandle);
+    window.imgState.results.splice(0, window.imgState.results.length);
+    for (var i = 0; i < keysList.length; i++) {
+      var key = keysList[i];
+      var blob = await read(key, dbHandle);
+      if (!(blob instanceof Blob) || blob.size < 100) {
+        continue;
+      }
+      var meta = await window.readMeta(blob);
+      var b64 = await window.blobToB64(blob);
+      window.imgState.results.push({
+        b64: b64,
+        media_type: 'image/jpeg',
+        model: meta.model || 'unknown',
+        prompt: meta.prompt || key,
+        ts: meta.ts || Date.now(),
+        stored: true,
+        savedKey: key,
+        savedNs: namespace
+      });
+    }
+    if (typeof window.renderGallery === 'function') {
+      window.renderGallery();
+    }
+  } catch (err) {
+    document.getElementById('status-bar').innerText = err.message;
+  }
+};
+
+window.loadGalleryFromFolder();
+</script>
+
+<script>
+var promptInput = document.getElementById('img-prompt');
+var storedPrompt = localStorage.getItem('apps_img_p');
+if (storedPrompt !== null) {
+  promptInput.value = storedPrompt;
+}
+promptInput.addEventListener('change', function() {
+  localStorage.setItem('apps_img_p', promptInput.value);
+});
+
+window.applyImageRecipe = function(entry) {
+  var promptEl = document.getElementById('img-prompt');
+  promptEl.value = entry.prompt;
+  promptEl.dispatchEvent(new Event('change'));
+  var selectEl = document.getElementById('model-select');
+  var found = false;
+  for (var i = 0; i < selectEl.options.length; i++) {
+    if (selectEl.options[i].value === entry.model) {
+      selectEl.value = entry.model;
+      selectEl.dispatchEvent(new Event('change'));
+      found = true;
+      break;
+    }
+  }
+};
+
+var gallery = document.getElementById('img-gallery');
+gallery.addEventListener('click', function(e) {
+  var target = e.target;
+  if (target.tagName === 'IMG' && target.closest) {
+    var resultEl = target.closest('.img-result');
+    if (resultEl) {
+      var children = gallery.children;
+      for (var i = 0; i < children.length; i++) {
+        if (children[i] === resultEl) {
+          var entry = window.imgState.results[i];
+          if (entry) {
+            window.applyImageRecipe(entry);
+          }
+          break;
+        }
+      }
+    }
+  }
+});
+</script>

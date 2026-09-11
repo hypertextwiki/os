@@ -151,4 +151,35 @@
   - BE HYPER AWARE OF PROMISES: write(), fetch() and embedMeta() return promises, every async step must be awaited or .then()ed, never let [object Promise] leak into a string
   - use var for all variable declarations
   - ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that autoloads images from the save folder and adds a refresh button
+- create global async function window.blobToB64(blob): return a promise that resolves to the base64 string of the blob using FileReader.readAsDataURL, stripping the data:...;base64, prefix
+- create global async function window.readMeta(blob): read the blob as an ArrayBuffer; if the first two bytes are not 0xFF 0xD8 (JPEG SOI), return an empty object; scan the jpeg markers starting at offset 2: when the marker byte is 0xFE (COM), read the two big-endian length bytes, extract the text payload, decode as UTF-8; parse the text assuming the format 'prompt\nModel: model, Date: isoDate' and return an object { prompt: prompt, model: model, ts: parsed Date.getTime() }; when the marker is not 0xFE, read the length and skip that segment; if no COM marker is found return an empty object
+- create a button element with a refresh emoji label (like 🔄) and append it to the existing div id img-save-row
+- create global async function window.loadGalleryFromFolder():
+  - read the value of id save-folder
+  - split at the FIRST %23 (hash) into namespace and folder; when no hash is present, namespace is null and folder is the whole value
+  - resolve the database handle: when namespace is non-null var dbHandle = await getDB(namespace), otherwise var dbHandle = await getDB()
+  - build the key prefix: when folder is non-empty prefix is folder %2B '/', otherwise prefix is the empty string
+  - fetch all keys in the database matching the prefix using keys(IDBKeyRange.bound(prefix, prefix %2B String.fromCharCode(65535)), dbHandle)
+  - empty the window.imgState.results array in place using splice(0, length)
+  - for each key found: var blob = await read(key, dbHandle); when blob is not a Blob or its size is less than 100 bytes (the empty pixel placeholder), skip it
+  - var meta = await window.readMeta(blob); var b64 = await window.blobToB64(blob)
+  - push an object onto window.imgState.results: { b64: b64, media_type: 'image/jpeg', model: meta.model || 'unknown', prompt: meta.prompt || key, ts: meta.ts || Date.now(), stored: true, savedKey: key, savedNs: namespace }
+  - call window.renderGallery()
+  - wrap the whole function body in try/catch: on error set innerText of id status-bar to err.message
+- bind click on the new refresh button to call window.loadGalleryFromFolder()
+- call window.loadGalleryFromFolder() once immediately on script load so the gallery populates from the folder on startup
+- BE HYPER AWARE OF PROMISES: read(), getDB(), keys(), blobToB64() and readMeta() return promises, every async step must be awaited, never let [object Promise] leak into a string
+- use var for all variable declarations
+- ONLY generate this SCRIPT tag, do not return the previous code
+&w&a=1&p=TASK: output a SCRIPT tag that persists the prompt and restores an image recipe on gallery clicks
+  - hydrate the value of textarea id img-prompt from localStorage key apps_img_p when that key exists
+  - add a change listener on id img-prompt that writes its value back to apps_img_p
+  - create global function window.applyImageRecipe(entry):
+    - set the value of id img-prompt to entry.prompt, then dispatch a new change Event on id img-prompt via dispatchEvent so the persistence listener above stores the restored prompt
+    - loop the options of id model-select, when one option value equals entry.model: set the select value to entry.model and dispatch a new change Event on id model-select via dispatchEvent so the per-model parameter controls re-render and the selection persists, when no option matches leave the dropdown untouched
+  - bind ONE click listener on id img-gallery: when the clicked element is an img inside a .img-result, take the index of that .img-result among the children of id img-gallery, read window.imgState.results at that index, when an entry exists call window.applyImageRecipe with it
+  - this listener is ADDITIVE: the fullscreen viewer chain already listens for clicks on id img-gallery, never remove or replace any existing listeners, one click both opens the viewer and restores the recipe into the fields underneath it
+  - use var for all variable declarations
+  - ONLY generate this SCRIPT tag, do not return the previous code
 &w
